@@ -12,3 +12,7 @@ pystray>=0.19
 
 # Dev:
 #   pip install pytest
+
+# Optional: correct Arabic display in the history window (Tk does no RTL shaping).
+arabic_reshaper>=3.0.0
+python-bidi>=0.4.2

@@ -1,0 +1,40 @@
+"""Orphan-image sweep and hotkey parsing."""
+
+import pytest
+
+from clipboard_manager.hotkeys import parse_hotkey
+from clipboard_manager.maintenance import sweep_orphan_images
+
+
+def test_orphan_images_removed_referenced_kept(store, images_dir):
+    referenced = images_dir / "abc123.png"
+    referenced.write_bytes(b"png")
+    orphan = images_dir / "dead99.png"
+    orphan.write_bytes(b"png")
+    not_an_image = images_dir / "notes.txt"
+    not_an_image.write_text("leave me")
+
+    store.add_image(str(referenced), digest="f" * 64)
+
+    removed = sweep_orphan_images(store, images_dir)
+    assert removed == [orphan]
+    assert referenced.exists()
+    assert not orphan.exists()
+    assert not_an_image.exists()  # only .png files are candidates
+
+
+def test_sweep_with_missing_directory(store, tmp_path):
+    assert sweep_orphan_images(store, tmp_path / "nope") == []
+
+
+def test_parse_hotkey_combinations():
+    mods, vk = parse_hotkey("ctrl+shift+v")
+    assert mods == 0x0002 | 0x0004 and vk == ord("V")
+    mods, vk = parse_hotkey("WIN + F9")
+    assert mods == 0x0008 and vk == 0x78
+
+
+def test_parse_hotkey_rejects_bad_specs():
+    for bad in ("", "v", "ctrl+", "ctrl+banana", "shift+ctrl"):
+        with pytest.raises(ValueError):
+            parse_hotkey(bad)
