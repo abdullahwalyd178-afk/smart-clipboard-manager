@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import threading
 import time
@@ -20,6 +21,8 @@ from .ocr import create_engine
 from .storage import ClipboardStore
 from .watcher import ClipboardWatcher, PyperclipPILProvider
 
+logger = logging.getLogger(__name__)
+
 PURGE_INTERVAL_SECONDS = 3600  # re-apply the retention rule hourly while running
 
 
@@ -29,7 +32,7 @@ def _remove_image_files(items) -> None:
             try:
                 Path(item.image_path).unlink(missing_ok=True)
             except OSError:
-                pass
+                logger.warning("Could not remove clipboard image file: %s", item.image_path, exc_info=True)
 
 
 def _purge_loop(store: ClipboardStore, config: Config, stop: threading.Event) -> None:
@@ -37,15 +40,15 @@ def _purge_loop(store: ClipboardStore, config: Config, stop: threading.Event) ->
         try:
             _remove_image_files(store.purge_expired(config.retention_days))
             _remove_image_files(store.enforce_max_items(config.max_items))
-        except Exception as exc:
-            print(f"[smart-clipboard] retention cleanup failed: {exc}", file=sys.stderr)
+        except Exception:
+            logger.exception("Retention cleanup failed")
 
 
 def _build_engine(config: Config):
     try:
         return create_engine(config)
     except Exception as exc:
-        print(f"[smart-clipboard] OCR disabled: {exc}", file=sys.stderr)
+        logger.warning("OCR disabled: %s", exc)
         return None
 
 
@@ -96,9 +99,8 @@ def cmd_run(args) -> int:
         if watcher_stopped:
             store.close()
         else:
-            print(
-                "[smart-clipboard] watcher is still busy; leaving the database open until process exit",
-                file=sys.stderr,
+            logger.warning(
+                "Watcher is still busy; leaving the database open until process exit"
             )
     return 0
 
