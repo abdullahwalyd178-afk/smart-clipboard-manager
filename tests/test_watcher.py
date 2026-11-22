@@ -2,6 +2,7 @@
 
 import io
 import threading
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -17,6 +18,15 @@ def make_png(color=(200, 30, 30)) -> bytes:
 
 PNG_A = make_png((200, 30, 30))
 PNG_B = make_png((30, 200, 30))
+
+
+def wait_until(predicate, timeout=2):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
 
 
 class FakeProvider(ClipboardProvider):
@@ -127,8 +137,8 @@ def test_image_is_stored_and_ocrd(store, images_dir):
     assert item is not None and item.kind == "image"
     assert item.image_path and (images_dir / item.image_path.split("/")[-1]).exists()
     assert ocr.finished.wait(timeout=2)
+    assert wait_until(lambda: store.get(item.id).ocr_text == "extracted: 2+2=4")
     assert ocr.calls == [item.image_path]
-    assert store.get(item.id).ocr_text == "extracted: 2+2=4"
 
 
 def test_ocr_result_copied_to_clipboard_and_not_recaptured(store, images_dir):
@@ -140,7 +150,7 @@ def test_ocr_result_copied_to_clipboard_and_not_recaptured(store, images_dir):
     item = watcher.poll_once()
     assert item is not None
     assert ocr.finished.wait(timeout=2)
-    assert provider.set_calls == ["READY TO PASTE"]
+    assert wait_until(lambda: provider.set_calls == ["READY TO PASTE"])
     assert provider.text == "READY TO PASTE"
 
     # The OCR text we placed ourselves must not become a new history item.
@@ -301,5 +311,5 @@ def test_slow_ocr_does_not_block_clipboard_polling(store, images_dir):
 
     ocr.release.set()
     assert ocr.finished.wait(timeout=2)
-    assert store.get(image_item.id).ocr_text == "background OCR"
+    assert wait_until(lambda: store.get(image_item.id).ocr_text == "background OCR")
     assert watcher.stop(timeout=2) is True
