@@ -1,0 +1,14 @@
+pyperclip>=1.8
+Pillow>=9.0
+pystray>=0.19
+
+# Tesseract is a system binary, not a pip package:
+#   Windows:  winget install UB-Mannheim.TesseractOCR
+#   Arabic text OCR needs the ara language data (installable in the same installer).
+
+# Optional OCR engines (heavy - install only if you want them):
+#   pip install easyocr        # alternative printed-text OCR, pulls PyTorch
+#   pip install pix2tex        # LaTeX-OCR, the right tool for math equations
+
+# Dev:
+#   pip install pytest
