@@ -1,22 +1,20 @@
 name: tests
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: ["main", "fix/**"]
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   pytest:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            python-version: "3.11"
-          - os: ubuntu-latest
-            python-version: "3.10"
-          - os: ubuntu-latest
-            python-version: "3.11"
-          - os: ubuntu-latest
-            python-version: "3.12"
-    runs-on: ${{ matrix.os }}
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
