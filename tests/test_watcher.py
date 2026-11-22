@@ -1,6 +1,7 @@
 """Watcher behavior with a fake clipboard and a fake OCR engine."""
 
 import io
+from pathlib import Path
 
 from PIL import Image
 
@@ -208,7 +209,7 @@ def test_max_items_is_enforced_during_capture_and_old_image_is_removed(store, im
     provider.image = PNG_A
     first = watcher.poll_once()
     assert first is not None and first.kind == "image"
-    saved_image = images_dir / (first.image_path.split("/")[-1])
+    saved_image = Path(first.image_path)
     assert saved_image.exists()
 
     provider.text = "newer text clip"
