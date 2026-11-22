@@ -12,8 +12,8 @@ A local, Windows-first system tray app that keeps a history of everything you co
   Everything stays on your machine: one SQLite database plus PNG files. Nothing is uploaded anywhere.
 - **نصوص وصور** — أي Copy جديد بيتسجل، مع منع التكرار تلقائيًا.
   Text and image clips, with automatic deduplication.
-- **OCR تلقائي للصور** — أول ما تعمل Screenshot، النص بيتستخرج وبيتنسخ جاهز للـ Paste.
-  Screenshots are OCR'd automatically and the text is placed on the clipboard, ready to paste.
+- **OCR تلقائي للصور** — أول ما تعمل Screenshot، النص بيتستخرج وبيتنسخ جاهز للـ Paste. الالتقاط بيتم بأدوات ويندوز العادية (Win+Shift+S لجزء من الشاشة، أو Print Screen) — الصورة بتوصل للحافظة والأداة بتستخرج النص منها تلقائيًا. مفيش زرار التقاط مدمج في الأداة.
+  Screenshots are OCR'd automatically and the text is placed on the clipboard, ready to paste. Capture with the normal Windows tools (Win+Shift+S for a region, or Print Screen) - the image lands on the clipboard and the app OCRs it. There is no built-in capture hotkey; the OS does the capturing.
 - **يفضل بعد إعادة التشغيل** — السجل محفوظ في قاعدة بيانات، مش بيضيع لو قفلت الجهاز.
   History survives restarts (SQLite persistence).
 - **تنظيف تلقائي بعد ٣ أيام** — أي عنصر عدّى ٣ أيام بيتحذف لوحده.
