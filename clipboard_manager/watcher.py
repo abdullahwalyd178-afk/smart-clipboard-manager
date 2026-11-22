@@ -1,12 +1,13 @@
-"""Clipboard monitoring loop.
+"""Clipboard monitoring with non-blocking OCR.
 
-The watcher polls the OS clipboard on a background thread. OCR runs on that
-worker thread (never the tray/UI thread); polling resumes after OCR completes.
+Clipboard polling and OCR use separate daemon workers. A slow OCR engine can
+therefore never stall capture of subsequent clipboard changes.
 """
 
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 from pathlib import Path
 from typing import Callable
@@ -15,6 +16,7 @@ from .models import ClipboardItem
 from .storage import ClipboardStore
 
 logger = logging.getLogger(__name__)
+_STOP_OCR = object()
 
 
 class ClipboardProvider:
@@ -102,9 +104,13 @@ class ClipboardWatcher:
         self.max_items = max_items
 
         self._last_hash: str | None = None
+        self._hash_lock = threading.Lock()
         self._pause_event = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._ocr_thread: threading.Thread | None = None
+        self._ocr_queue: queue.Queue = queue.Queue()
+        self._ocr_shutdown_requested = False
         self._lifecycle_lock = threading.Lock()
 
     @property
@@ -117,30 +123,60 @@ class ClipboardWatcher:
     def resume(self) -> None:
         self._pause_event.clear()
 
+    def _ensure_ocr_worker(self) -> None:
+        if self.ocr_engine is None:
+            return
+        with self._lifecycle_lock:
+            if self._ocr_thread is not None and self._ocr_thread.is_alive():
+                return
+            self._ocr_shutdown_requested = False
+            self._ocr_thread = threading.Thread(
+                target=self._ocr_loop, name="clipboard-ocr", daemon=True
+            )
+            self._ocr_thread.start()
+
     def start(self) -> None:
         with self._lifecycle_lock:
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop.clear()
+            self._ocr_shutdown_requested = False
             self._thread = threading.Thread(
                 target=self._run, name="clipboard-watcher", daemon=True
             )
             self._thread.start()
+        self._ensure_ocr_worker()
 
     def stop(self, timeout: float = 5.0) -> bool:
+        """Stop polling and drain OCR work; False means a worker is still busy."""
         self._stop.set()
         with self._lifecycle_lock:
             thread = self._thread
-        if thread is None:
-            return True
-        thread.join(timeout=max(0.0, timeout))
-        if not thread.is_alive():
+        if thread is not None:
+            thread.join(timeout=max(0.0, timeout))
+            if thread.is_alive():
+                logger.warning("Clipboard watcher did not stop within %.1f seconds", timeout)
+                return False
             with self._lifecycle_lock:
                 if self._thread is thread:
                     self._thread = None
-            return True
-        logger.warning("Clipboard watcher did not stop within %.1f seconds", timeout)
-        return False
+
+        with self._lifecycle_lock:
+            ocr_thread = self._ocr_thread
+            if ocr_thread is not None and ocr_thread.is_alive() and not self._ocr_shutdown_requested:
+                self._ocr_shutdown_requested = True
+                self._ocr_queue.put(_STOP_OCR)
+
+        if ocr_thread is not None:
+            ocr_thread.join(timeout=max(0.0, timeout))
+            if ocr_thread.is_alive():
+                logger.warning("OCR worker did not stop within %.1f seconds", timeout)
+                return False
+            with self._lifecycle_lock:
+                if self._ocr_thread is ocr_thread:
+                    self._ocr_thread = None
+                self._ocr_shutdown_requested = False
+        return True
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -149,6 +185,40 @@ class ClipboardWatcher:
             except Exception:
                 logger.exception("Unexpected clipboard polling failure")
             self._stop.wait(self.poll_interval)
+
+    def _ocr_loop(self) -> None:
+        while True:
+            task = self._ocr_queue.get()
+            try:
+                if task is _STOP_OCR:
+                    return
+                item_id, image_path, digest = task
+                self._process_ocr(item_id, image_path, digest)
+            except Exception:
+                logger.exception("Unexpected OCR worker failure")
+            finally:
+                self._ocr_queue.task_done()
+
+    def _process_ocr(self, item_id: int, image_path: str, digest: str) -> None:
+        # An item may have expired or been evicted while waiting in the queue.
+        if self.store.get(item_id) is None:
+            return
+        try:
+            ocr_text = self.ocr_engine.extract_text(image_path)
+        except Exception:
+            logger.exception("OCR failed for clipboard image %s", image_path)
+            return
+        if not ocr_text or self.store.get(item_id) is None:
+            return
+
+        self.store.set_ocr_text(item_id, ocr_text)
+        if self.copy_ocr_result_to_clipboard and self._current_clipboard_hash() == digest:
+            try:
+                self.provider.set_text(ocr_text)
+                with self._hash_lock:
+                    self._last_hash = ClipboardItem.hash_text(ocr_text)
+            except Exception:
+                logger.warning("Could not copy OCR result to clipboard", exc_info=True)
 
     def _apply_item_limit(self) -> None:
         if self.max_items <= 0:
@@ -159,7 +229,7 @@ class ClipboardWatcher:
                 try:
                     Path(item.image_path).unlink(missing_ok=True)
                 except OSError:
-                    logger.warning("Could not remove expired clipboard image: %s", item.image_path)
+                    logger.warning("Could not remove evicted clipboard image: %s", item.image_path)
 
     def poll_once(self) -> ClipboardItem | None:
         """Check the clipboard once. Returns the new item, or None."""
@@ -177,9 +247,10 @@ class ClipboardWatcher:
 
     def _capture_text(self, text: str) -> ClipboardItem | None:
         digest = ClipboardItem.hash_text(text)
-        if digest == self._last_hash:
-            return None
-        self._last_hash = digest
+        with self._hash_lock:
+            if digest == self._last_hash:
+                return None
+            self._last_hash = digest
         item, is_new = self.store.add_text(text)
         if not is_new:
             return None
@@ -203,9 +274,10 @@ class ClipboardWatcher:
 
     def _capture_image(self, png: bytes) -> ClipboardItem | None:
         digest = ClipboardItem.hash_bytes(png)
-        if digest == self._last_hash:
-            return None
-        self._last_hash = digest
+        with self._hash_lock:
+            if digest == self._last_hash:
+                return None
+            self._last_hash = digest
 
         self.images_dir.mkdir(parents=True, exist_ok=True)
         image_path = self.images_dir / f"{digest[:16]}.png"
@@ -222,20 +294,8 @@ class ClipboardWatcher:
             return None
 
         if self.ocr_engine is not None:
-            try:
-                ocr_text = self.ocr_engine.extract_text(str(image_path))
-            except Exception:
-                logger.exception("OCR failed for clipboard image %s", image_path)
-                ocr_text = ""
-            if ocr_text:
-                self.store.set_ocr_text(item.id, ocr_text)
-                item.ocr_text = ocr_text
-                if self.copy_ocr_result_to_clipboard and self._current_clipboard_hash() == digest:
-                    try:
-                        self.provider.set_text(ocr_text)
-                        self._last_hash = ClipboardItem.hash_text(ocr_text)
-                    except Exception:
-                        logger.warning("Could not copy OCR result to clipboard", exc_info=True)
+            self._ensure_ocr_worker()
+            self._ocr_queue.put((item.id, str(image_path), digest))
 
         self._apply_item_limit()
         if self.on_new_item:
