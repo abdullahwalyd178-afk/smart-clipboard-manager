@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -48,9 +49,9 @@ class Config:
             self.poll_interval_seconds, (int, float)
         ):
             raise ValueError("poll_interval_seconds must be a number")
-        if self.poll_interval_seconds <= 0:
-            raise ValueError("poll_interval_seconds must be greater than zero")
-        if self.ocr_engine not in OCR_ENGINES:
+        if not math.isfinite(self.poll_interval_seconds) or self.poll_interval_seconds <= 0:
+            raise ValueError("poll_interval_seconds must be a finite number greater than zero")
+        if not isinstance(self.ocr_engine, str) or self.ocr_engine not in OCR_ENGINES:
             raise ValueError(
                 f"unknown ocr_engine {self.ocr_engine!r} "
                 f"(choose one of: {', '.join(sorted(OCR_ENGINES))})"
