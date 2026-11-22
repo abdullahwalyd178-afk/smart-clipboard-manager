@@ -183,7 +183,6 @@ class ClipboardWatcher:
         item, is_new = self.store.add_text(text)
         if not is_new:
             return None
-        self._apply_item_limit()
         if self.on_new_item:
             self.on_new_item(item)
         return item
@@ -220,6 +219,8 @@ class ClipboardWatcher:
         item, is_new = self.store.add_image(str(image_path), digest)
         if not is_new:
             return None
+        # Enforce the cap before OCR, which may take several seconds or longer.
+        self._apply_item_limit()
 
         if self.ocr_engine is not None:
             try:
