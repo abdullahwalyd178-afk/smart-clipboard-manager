@@ -9,12 +9,17 @@ Menu:
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 import pystray
 from PIL import Image, ImageDraw
 
 from .models import IMAGE, TEXT, ClipboardItem
 from .storage import ClipboardStore
 from .watcher import ClipboardWatcher, ClipboardProvider
+
+logger = logging.getLogger(__name__)
 
 
 def build_icon_image(size: int = 64) -> Image.Image:
@@ -105,7 +110,7 @@ class TrayApp:
                 try:
                     self.provider.set_text(value)
                 except Exception:
-                    pass
+                    logger.warning("Could not copy clipboard history item", exc_info=True)
 
         return action
 
@@ -121,11 +126,10 @@ class TrayApp:
         def action(icon=None, menu_item=None) -> None:
             removed = self.store.delete(item.id)
             if removed and removed.image_path:
-                from pathlib import Path
                 try:
                     Path(removed.image_path).unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    logger.warning("Could not remove deleted clipboard image: %s", removed.image_path, exc_info=True)
             self.icon.update_menu()
 
         return action
@@ -134,11 +138,10 @@ class TrayApp:
         removed = self.store.clear_unpinned()
         for clip in removed:
             if clip.image_path:
-                from pathlib import Path
                 try:
                     Path(clip.image_path).unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    logger.warning("Could not remove cleared clipboard image: %s", clip.image_path, exc_info=True)
         self.icon.update_menu()
 
     def _quit(self, icon=None, item=None) -> None:
