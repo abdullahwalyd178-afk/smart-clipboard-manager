@@ -34,8 +34,11 @@ def _remove_image_files(items) -> None:
 
 def _purge_loop(store: ClipboardStore, config: Config, stop: threading.Event) -> None:
     while not stop.wait(PURGE_INTERVAL_SECONDS):
-        _remove_image_files(store.purge_expired(config.retention_days))
-        _remove_image_files(store.enforce_max_items(config.max_items))
+        try:
+            _remove_image_files(store.purge_expired(config.retention_days))
+            _remove_image_files(store.enforce_max_items(config.max_items))
+        except Exception as exc:
+            print(f"[smart-clipboard] retention cleanup failed: {exc}", file=sys.stderr)
 
 
 def _build_engine(config: Config):
@@ -54,6 +57,7 @@ def cmd_run(args) -> int:
     # Apply the retention rule on startup, so old items disappear even if the
     # app was not running when they aged out.
     _remove_image_files(store.purge_expired(config.retention_days))
+    _remove_image_files(store.enforce_max_items(config.max_items))
 
     engine = _build_engine(config)
     provider = PyperclipPILProvider()
@@ -87,6 +91,7 @@ def cmd_run(args) -> int:
     finally:
         stop.set()
         watcher.stop()
+        purge_thread.join(timeout=5)
         store.close()
     return 0
 
