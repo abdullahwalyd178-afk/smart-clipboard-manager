@@ -14,6 +14,8 @@ A local, Windows-first system tray app that keeps a history of everything you co
   Text and image clips, with automatic deduplication.
 - **OCR تلقائي للصور** — أول ما تعمل Screenshot، النص بيتستخرج وبيتنسخ جاهز للـ Paste. الالتقاط بيتم بأدوات ويندوز العادية (Win+Shift+S لجزء من الشاشة، أو Print Screen) — الصورة بتوصل للحافظة والأداة بتستخرج النص منها تلقائيًا. مفيش زرار التقاط مدمج في الأداة.
   Screenshots are OCR'd automatically and the text is placed on the clipboard, ready to paste. Capture with the normal Windows tools (Win+Shift+S for a region, or Print Screen) - the image lands on the clipboard and the app OCRs it. There is no built-in capture hotkey; the OS does the capturing.
+- **OCR في الخلفية** — تحليل الصور بيتم في عامل مستقل؛ بطء استخراج النص مش بيوقف مراقبة الحافظة أو تسجيل النسخ الجديدة.
+  OCR runs on a dedicated worker, so slow image recognition does not block clipboard polling or capture of newer clips.
 - **يفضل بعد إعادة التشغيل** — السجل محفوظ في قاعدة بيانات، مش بيضيع لو قفلت الجهاز.
   History survives restarts (SQLite persistence).
 - **تنظيف تلقائي بعد ٣ أيام** — أي عنصر غير مثبت عدّى ٣ أيام بيتحذف عند التشغيل وكل ساعة أثناء العمل.
@@ -83,7 +85,7 @@ pytest
 
 الاختبارات بتغطي: التخزين ومنع التكرار، الـ Pin وقاعدة الـ ٣ أيام، الاستمرار بعد إعادة التشغيل، مراقبة الحافظة، حد العناصر وتنظيف الصور، التحقق من الإعدادات، وإيقاف آمن أثناء عمليات OCR، واختبار OCR حقيقي على صورة مولّدة (بيتخطى تلقائيًا لو Tesseract مش متثبت).
 
-Tests cover: storage/dedup, pin + retention, restart persistence, clipboard watching, immediate item caps and image cleanup, config validation, safe shutdown during a blocked capture, OCR auto-copy safety, and a real Tesseract OCR run on a generated image (auto-skipped if Tesseract isn't installed).
+Tests cover: storage/dedup, pin + retention, restart persistence, clipboard watching, immediate item caps and image cleanup, config validation, non-blocking OCR, safe shutdown during a blocked capture, OCR auto-copy safety, and a real Tesseract OCR run on a generated image (auto-skipped if Tesseract isn't installed).
 
 ## التقنيات · Stack
 
