@@ -91,9 +91,15 @@ def cmd_run(args) -> int:
         pass
     finally:
         stop.set()
-        watcher.stop()
+        watcher_stopped = watcher.stop()
         purge_thread.join(timeout=5)
-        store.close()
+        if watcher_stopped:
+            store.close()
+        else:
+            print(
+                "[smart-clipboard] watcher is still busy; leaving the database open until process exit",
+                file=sys.stderr,
+            )
     return 0
 
 
