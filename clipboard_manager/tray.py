@@ -119,13 +119,26 @@ class TrayApp:
 
     def _make_delete(self, item: ClipboardItem):
         def action(icon=None, menu_item=None) -> None:
-            self.store.delete(item.id)
+            removed = self.store.delete(item.id)
+            if removed and removed.image_path:
+                from pathlib import Path
+                try:
+                    Path(removed.image_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
             self.icon.update_menu()
 
         return action
 
     def _clear_unpinned(self, icon=None, item=None) -> None:
-        self.store.clear_unpinned()
+        removed = self.store.clear_unpinned()
+        for clip in removed:
+            if clip.image_path:
+                from pathlib import Path
+                try:
+                    Path(clip.image_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
         self.icon.update_menu()
 
     def _quit(self, icon=None, item=None) -> None:
