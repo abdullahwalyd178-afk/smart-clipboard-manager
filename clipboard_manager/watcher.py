@@ -127,18 +127,20 @@ class ClipboardWatcher:
             )
             self._thread.start()
 
-    def stop(self, timeout: float = 5.0) -> None:
+    def stop(self, timeout: float = 5.0) -> bool:
         self._stop.set()
         with self._lifecycle_lock:
             thread = self._thread
-        if thread is not None:
-            thread.join(timeout=max(0.0, timeout))
-            if not thread.is_alive():
-                with self._lifecycle_lock:
-                    if self._thread is thread:
-                        self._thread = None
-            else:
-                logger.warning("Clipboard watcher did not stop within %.1f seconds", timeout)
+        if thread is None:
+            return True
+        thread.join(timeout=max(0.0, timeout))
+        if not thread.is_alive():
+            with self._lifecycle_lock:
+                if self._thread is thread:
+                    self._thread = None
+            return True
+        logger.warning("Clipboard watcher did not stop within %.1f seconds", timeout)
+        return False
 
     def _run(self) -> None:
         while not self._stop.is_set():
