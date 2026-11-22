@@ -75,3 +75,13 @@ def test_load_rejects_invalid_persisted_values(tmp_path):
     path.write_text(json.dumps({"max_items": -4}), encoding="utf-8")
     with pytest.raises(ValueError, match="max_items"):
         Config.load(path)
+
+@pytest.mark.parametrize("interval", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_poll_intervals_are_rejected(interval):
+    with pytest.raises(ValueError, match="finite number"):
+        Config(poll_interval_seconds=interval)
+
+
+def test_non_string_ocr_engine_is_rejected():
+    with pytest.raises(ValueError, match="ocr_engine"):
+        Config(ocr_engine=[])
