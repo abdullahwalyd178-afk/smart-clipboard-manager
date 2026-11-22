@@ -1,6 +1,8 @@
 """Watcher behavior with a fake clipboard and a fake OCR engine."""
 
 import io
+import threading
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -16,6 +18,15 @@ def make_png(color=(200, 30, 30)) -> bytes:
 
 PNG_A = make_png((200, 30, 30))
 PNG_B = make_png((30, 200, 30))
+
+
+def wait_until(predicate, timeout=2):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
 
 
 class FakeProvider(ClipboardProvider):
@@ -64,9 +75,11 @@ class FakeOCR:
     def __init__(self, result="OCR RESULT"):
         self.result = result
         self.calls = []
+        self.finished = threading.Event()
 
     def extract_text(self, path):
         self.calls.append(path)
+        self.finished.set()
         return self.result
 
 
@@ -122,9 +135,10 @@ def test_image_is_stored_and_ocrd(store, images_dir):
 
     item = watcher.poll_once()
     assert item is not None and item.kind == "image"
-    assert item.image_path and (images_dir / item.image_path.split("/")[-1]).exists()
+    assert item.image_path and Path(item.image_path).exists()
+    assert ocr.finished.wait(timeout=2)
+    assert wait_until(lambda: store.get(item.id).ocr_text == "extracted: 2+2=4")
     assert ocr.calls == [item.image_path]
-    assert store.get(item.id).ocr_text == "extracted: 2+2=4"
 
 
 def test_ocr_result_copied_to_clipboard_and_not_recaptured(store, images_dir):
@@ -133,8 +147,10 @@ def test_ocr_result_copied_to_clipboard_and_not_recaptured(store, images_dir):
     ocr = FakeOCR("READY TO PASTE")
     watcher = make_watcher(store, images_dir, provider, ocr=ocr)
 
-    watcher.poll_once()
-    assert provider.set_calls == ["READY TO PASTE"]
+    item = watcher.poll_once()
+    assert item is not None
+    assert ocr.finished.wait(timeout=2)
+    assert wait_until(lambda: provider.set_calls == ["READY TO PASTE"])
     assert provider.text == "READY TO PASTE"
 
     # The OCR text we placed ourselves must not become a new history item.
@@ -157,6 +173,7 @@ def test_ocr_never_overwrites_newer_user_copy(store, images_dir):
     watcher = make_watcher(store, images_dir, provider, ocr=ocr)
 
     watcher.poll_once()
+    assert ocr.finished.wait(timeout=2)
     assert provider.set_calls == []  # OCR result was NOT placed
     assert provider.text == "user copied this meanwhile"
 
@@ -175,23 +192,28 @@ def test_different_images_both_captured(store, images_dir):
 def test_auto_copy_disabled(store, images_dir):
     provider = FakeProvider()
     provider.image = PNG_A
-    watcher = make_watcher(store, images_dir, provider, ocr=FakeOCR(), auto_copy=False)
+    ocr = FakeOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr, auto_copy=False)
 
     watcher.poll_once()
+    assert ocr.finished.wait(timeout=2)
     assert provider.set_calls == []
 
 
 def test_ocr_failure_does_not_break_capture(store, images_dir):
     class BrokenOCR(FakeOCR):
         def extract_text(self, path):
+            self.finished.set()
             raise RuntimeError("engine exploded")
 
     provider = FakeProvider()
     provider.image = PNG_A
-    watcher = make_watcher(store, images_dir, provider, ocr=BrokenOCR())
+    ocr = BrokenOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
 
     item = watcher.poll_once()
     assert item is not None
+    assert ocr.finished.wait(timeout=2)
     assert store.get(item.id).ocr_text is None
     # next image still works after the failure
     provider.image = PNG_B
@@ -257,3 +279,39 @@ def test_stop_reports_busy_watcher_and_can_be_retried(store, images_dir):
     assert watcher.stop(timeout=0.01) is False
     release.set()
     assert watcher.stop(timeout=1) is True
+
+
+def test_slow_ocr_does_not_block_clipboard_polling(store, images_dir):
+    class BlockingOCR(FakeOCR):
+        def __init__(self):
+            super().__init__("background OCR")
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def extract_text(self, path):
+            self.calls.append(path)
+            self.entered.set()
+            self.release.wait(timeout=2)
+            self.finished.set()
+            return self.result
+
+    provider = FakeProvider()
+    provider.image = PNG_A
+    ocr = BlockingOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
+
+    image_item = watcher.poll_once()
+    assert image_item is not None
+    assert ocr.entered.wait(timeout=1)
+
+    # OCR is deliberately blocked, but a later clipboard change is still
+    # captured synchronously by the independent polling path.
+    provider.text = "copied while OCR is busy"
+    text_item = watcher.poll_once()
+    assert text_item is not None and text_item.text == "copied while OCR is busy"
+    assert store.count() == 2
+
+    ocr.release.set()
+    assert ocr.finished.wait(timeout=2)
+    assert wait_until(lambda: store.get(image_item.id).ocr_text == "background OCR")
+    assert watcher.stop(timeout=2) is True
