@@ -43,10 +43,11 @@ def test_tesseract_reads_rendered_text(tmp_path):
     assert "hello" in result and "clipboard" in result
 
 
-def test_factory_rejects_unknown_engine(tmp_path):
-    cfg = Config(ocr_engine="does-not-exist", data_dir=str(tmp_path))
+def test_config_rejects_unknown_engine_before_engine_creation(tmp_path):
+    # Config validates engine names at construction, so invalid settings never
+    # reach the engine factory or the application startup path.
     with pytest.raises(ValueError, match="unknown ocr_engine"):
-        create_engine(cfg)
+        Config(ocr_engine="does-not-exist", data_dir=str(tmp_path))
 
 
 def test_factory_reports_missing_tesseract(tmp_path):
