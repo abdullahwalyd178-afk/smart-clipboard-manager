@@ -192,7 +192,8 @@ def test_different_images_both_captured(store, images_dir):
 def test_auto_copy_disabled(store, images_dir):
     provider = FakeProvider()
     provider.image = PNG_A
-    watcher = make_watcher(store, images_dir, provider, ocr=FakeOCR(), auto_copy=False)
+    ocr = FakeOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr, auto_copy=False)
 
     watcher.poll_once()
     assert ocr.finished.wait(timeout=2)
@@ -207,7 +208,8 @@ def test_ocr_failure_does_not_break_capture(store, images_dir):
 
     provider = FakeProvider()
     provider.image = PNG_A
-    watcher = make_watcher(store, images_dir, provider, ocr=BrokenOCR())
+    ocr = BrokenOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
 
     item = watcher.poll_once()
     assert item is not None
