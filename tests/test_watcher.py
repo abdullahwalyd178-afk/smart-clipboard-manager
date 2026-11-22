@@ -236,3 +236,23 @@ def test_invalid_watcher_limits_are_rejected(store, images_dir):
         ClipboardWatcher(store, provider, images_dir, poll_interval=0)
     with pytest.raises(ValueError, match="max_items"):
         ClipboardWatcher(store, provider, images_dir, max_items=-1)
+
+
+def test_stop_reports_busy_watcher_and_can_be_retried(store, images_dir):
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingProvider(FakeProvider):
+        def get_text(self):
+            entered.set()
+            release.wait(timeout=2)
+            return None
+
+    watcher = ClipboardWatcher(store, BlockingProvider(), images_dir, poll_interval=0.01)
+    watcher.start()
+    assert entered.wait(timeout=1)
+    assert watcher.stop(timeout=0.01) is False
+    release.set()
+    assert watcher.stop(timeout=1) is True
