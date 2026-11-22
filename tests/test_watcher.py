@@ -1,6 +1,7 @@
 """Watcher behavior with a fake clipboard and a fake OCR engine."""
 
 import io
+from pathlib import Path
 
 from PIL import Image
 
@@ -196,3 +197,63 @@ def test_ocr_failure_does_not_break_capture(store, images_dir):
     provider.image = PNG_B
     assert watcher.poll_once() is not None
     assert store.count() == 2
+
+
+
+def test_max_items_is_enforced_during_capture_and_old_image_is_removed(store, images_dir):
+    provider = FakeProvider()
+    watcher = ClipboardWatcher(
+        store, provider, images_dir, max_items=1
+    )
+
+    provider.image = PNG_A
+    first = watcher.poll_once()
+    assert first is not None and first.kind == "image"
+    saved_image = Path(first.image_path)
+    assert saved_image.exists()
+
+    provider.text = "newer text clip"
+    second = watcher.poll_once()
+    assert second is not None and second.text == "newer text clip"
+    assert store.count() == 1
+    assert store.get(first.id) is None
+    assert not saved_image.exists()
+
+
+def test_zero_max_items_means_unlimited(store, images_dir):
+    provider = FakeProvider()
+    watcher = ClipboardWatcher(store, provider, images_dir, max_items=0)
+    for value in ("one", "two", "three"):
+        provider.text = value
+        watcher.poll_once()
+    assert store.count() == 3
+
+
+def test_invalid_watcher_limits_are_rejected(store, images_dir):
+    import pytest
+
+    provider = FakeProvider()
+    with pytest.raises(ValueError, match="poll_interval"):
+        ClipboardWatcher(store, provider, images_dir, poll_interval=0)
+    with pytest.raises(ValueError, match="max_items"):
+        ClipboardWatcher(store, provider, images_dir, max_items=-1)
+
+
+def test_stop_reports_busy_watcher_and_can_be_retried(store, images_dir):
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingProvider(FakeProvider):
+        def get_text(self):
+            entered.set()
+            release.wait(timeout=2)
+            return None
+
+    watcher = ClipboardWatcher(store, BlockingProvider(), images_dir, poll_interval=0.01)
+    watcher.start()
+    assert entered.wait(timeout=1)
+    assert watcher.stop(timeout=0.01) is False
+    release.set()
+    assert watcher.stop(timeout=1) is True
