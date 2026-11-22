@@ -135,7 +135,7 @@ def test_image_is_stored_and_ocrd(store, images_dir):
 
     item = watcher.poll_once()
     assert item is not None and item.kind == "image"
-    assert item.image_path and (images_dir / item.image_path.split("/")[-1]).exists()
+    assert item.image_path and Path(item.image_path).exists()
     assert ocr.finished.wait(timeout=2)
     assert wait_until(lambda: store.get(item.id).ocr_text == "extracted: 2+2=4")
     assert ocr.calls == [item.image_path]
