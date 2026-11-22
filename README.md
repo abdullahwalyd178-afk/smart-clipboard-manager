@@ -22,13 +22,21 @@ A local, Windows-first system tray app that keeps a history of everything you co
   Pinned items never expire.
 - **تحكم من الـ Tray** — إيقاف مؤقت للتسجيل (Pause)، استرجاع أي عنصر، Pin/Unpin، حذف، أو مسح كل العناصر غير المثبتة.
   Tray menu: pause capture, copy items back, pin/unpin, delete, clear unpinned.
+- **نافذة سجل مستقلة (جديد في v0.2)** — بحث فوري في كل السجل، فلترة (نصوص/صور/مفضلة)، Pin، مفضلة ★، تصنيفات (Tags)، حذف، إعادة OCR، ونسخ رجوع بالـ Enter. بتتفتح من قائمة الـ Tray، أو بـ `python -m clipboard_manager ui`، أو بالاختصار العام **Ctrl+Shift+V** (ويندوز) من غير ما تسيب البرنامج اللي شغال عليه.
+  Standalone history window (new in v0.2): instant full-history search, filters, pin/favorite/tags/delete, OCR retry, Enter to copy back. Opens from the tray, the CLI, or the global Ctrl+Shift+V hotkey (Windows) without leaving the app you're working in. Arabic text is pre-shaped with `arabic_reshaper` + `python-bidi` (optional, in requirements) so it displays correctly despite Tk's lack of RTL shaping.
 
-## الخصوصية · Privacy
+## الخصوصية وحماية البيانات الحساسة · Privacy & sensitive-data protection
 
 - السجل محلي بالكامل؛ الكود ده مفيهوش أي شبكة أو Telemetry.
   The history is fully local; this app has no networking or telemetry of any kind.
-- انتبه: أي حاجة بتعملها Copy — بما فيها كلمات السر — بتتسجل لمدة ٣ أيام. لو بتنسخ حاجة حساسة كتير، استخدم **Pause capture** من قائمة الـ Tray قبلها، ومتعملش Pin لحاجة حساسة (المثبّت مش بيتحذف أبدًا).
-  Anything you copy — including passwords — is recorded for up to 3 days. Use **Pause capture** before copying secrets, and don't pin sensitive items (pinned items never expire).
+- **حماية فعلية، مش مجرد تحذير (جديد في v0.2):** الأداة بتمنع تسجيل المحتوى الحساس قبل ما يوصل لقاعدة البيانات أصلًا:
+  Actual filtering, not just a warning (new in v0.2) - sensitive content is dropped before it ever reaches the database:
+  - **استثناء تطبيقات** (ويندوز فقط): لو النافذة النشطة لتطبيق موجود في `excluded_apps` (زي مدير كلمات السر بتاعك)، مفيش أي التقاط طالما هو في المقدمة. وكمان `excluded_window_keywords` بيوقف الالتقاط لو عنوان النافذة فيه كلمة معينة (زي "bank").
+    App exclusions (Windows only): nothing is captured while an excluded app is in front, or while the window title contains an excluded keyword.
+  - **اكتشاف النصوص الشبيهة بكلمات السر** (كل الأنظمة): أي نص منسوخ شكله بيانات اعتماد — تعيين password/token، JWT، مفاتيح AWS/GitHub، أرقام بطاقات (بفحص Luhn)، أو توكن عشوائي طويل — **مبيتخزنش**. اتحكم فيه بـ `skip_suspected_secrets` (شغال افتراضيًا).
+    Suspected-secret detection (all platforms): text that looks like a credential is not stored. Heuristics are a seatbelt, not a guarantee - **Pause capture** remains the certain way to keep a copy out of the history.
+- حدود صريحة: اكتشاف التطبيق النشط ويندوز فقط (مفيش طريقة موثوقة في المكتبة القياسية على لينكس/ماك)، والاكتشاف التلقائي مش بيمسك كل الأنواع.
+  Honest limits: foreground detection is Windows-only, and heuristics cannot catch every secret.
 
 ## عن المعادلات الرياضية · About math equations
 
@@ -71,6 +79,12 @@ python -m clipboard_manager clear      # مسح كل العناصر غير ال�
 | `ocr_language` | `"eng"` | لغات Tesseract |
 | `copy_ocr_result_to_clipboard` | `true` | نسخ نتيجة الـ OCR تلقائيًا جاهزة للـ Paste |
 | `max_items` | `500` | حد أقصى للعناصر (الأقدم غير المثبّت بيتحذف أولًا) |
+| `excluded_apps` | `[]` | أسماء عمليات (.exe) ممنوع التسجيل وهي في المقدمة (ويندوز) |
+| `excluded_window_keywords` | `[]` | كلمات في عنوان النافذة توقف التسجيل (ويندوز) |
+| `skip_suspected_secrets` | `true` | منع تخزين النصوص الشبيهة بكلمات السر/التوكنات |
+| `ocr_timeout_seconds` | `60` | مهلة قصوى لكل عملية OCR |
+| `ocr_preprocess` | `false` | تحسين الصورة (تكبير/تباين) قبل Tesseract — يساعد العربي والنصوص الصغيرة |
+| `quick_search_hotkey` | `"ctrl+shift+v"` | اختصار عام لفتح نافذة البحث (ويندوز؛ فاضي = معطل) |
 
 ## الاختبارات · Tests
 

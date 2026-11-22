@@ -40,6 +40,24 @@ class Config:
     copy_ocr_result_to_clipboard: bool = True
     # Safety cap on stored items (oldest unpinned removed first). 0 = no cap.
     max_items: int = 500
+    # --- sensitive-data protection (see sensitive.py) ---
+    # Foreground processes whose clipboard content is never recorded
+    # (Windows only; lowercase .exe names).
+    excluded_apps: list = field(default_factory=list)
+    # Window-title keywords that also pause recording while in front
+    # (Windows only), e.g. ["bank", "كلمة المرور"].
+    excluded_window_keywords: list = field(default_factory=list)
+    # Drop text that looks like a credential (all platforms, heuristic).
+    skip_suspected_secrets: bool = True
+    # --- OCR tuning ---
+    # Hard timeout per OCR run so a hung engine never stalls polling.
+    ocr_timeout_seconds: int = 60
+    # Preprocess screenshots (grayscale/autocontrast/upscale) before Tesseract;
+    # helps small text and Arabic.
+    ocr_preprocess: bool = False
+    # Global hotkey that opens the quick-search window (Windows only),
+    # e.g. "ctrl+shift+v". Empty string disables it.
+    quick_search_hotkey: str = "ctrl+shift+v"
     data_dir: str = field(default_factory=lambda: str(default_data_dir()))
 
     @property

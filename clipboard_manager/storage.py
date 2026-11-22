@@ -4,6 +4,9 @@ Everything stays local: one SQLite file plus PNG files for image clips.
 Persistence across restarts comes for free from SQLite. Retention is enforced
 by ``purge_expired`` which removes unpinned items older than the configured
 number of days; pinned items never expire.
+
+Schema migrations are applied idempotently in ``_migrate`` so existing v0.1
+databases keep working: new columns are added with ALTER TABLE when missing.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .models import IMAGE, TEXT, ClipboardItem
+from .models import IMAGE, OCR_DONE, OCR_FAILED, TEXT, ClipboardItem
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
@@ -30,7 +33,17 @@ CREATE INDEX IF NOT EXISTS idx_items_hash ON items(content_hash);
 CREATE INDEX IF NOT EXISTS idx_items_created ON items(created_at);
 """
 
-COLUMNS = "id, kind, content_hash, text, image_path, ocr_text, pinned, created_at"
+# Columns added after the original v0.1 schema: name -> SQL definition.
+_MIGRATIONS = {
+    "favorite": "ALTER TABLE items ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0",
+    "tags": "ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
+    "ocr_status": "ALTER TABLE items ADD COLUMN ocr_status TEXT",
+}
+
+COLUMNS = (
+    "id, kind, content_hash, text, image_path, ocr_text, pinned, created_at, "
+    "favorite, tags, ocr_status"
+)
 
 
 class ClipboardStore:
@@ -42,7 +55,16 @@ class ClipboardStore:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        existing = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(items)").fetchall()
+        }
+        for column, statement in _MIGRATIONS.items():
+            if column not in existing:
+                self._conn.execute(statement)
 
     def close(self) -> None:
         with self._lock:
@@ -67,6 +89,9 @@ class ClipboardStore:
             ocr_text=row["ocr_text"],
             pinned=bool(row["pinned"]),
             created_at=row["created_at"],
+            favorite=bool(row["favorite"]),
+            tags=row["tags"] or "",
+            ocr_status=row["ocr_status"],
         )
 
     def get_by_hash(self, content_hash: str) -> ClipboardItem | None:
@@ -74,6 +99,14 @@ class ClipboardStore:
             row = self._conn.execute(
                 f"SELECT {COLUMNS} FROM items WHERE content_hash = ? ORDER BY id DESC LIMIT 1",
                 (content_hash,),
+            ).fetchone()
+        return self._row_to_item(row) if row else None
+
+    def get_by_image_path(self, image_path: str) -> ClipboardItem | None:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {COLUMNS} FROM items WHERE image_path = ? ORDER BY id DESC LIMIT 1",
+                (image_path,),
             ).fetchone()
         return self._row_to_item(row) if row else None
 
@@ -96,13 +129,73 @@ class ClipboardStore:
         with self._lock:
             return self._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
 
+    def search(
+        self,
+        query: str = "",
+        kind: str | None = None,
+        favorites_only: bool = False,
+        tag: str | None = None,
+        limit: int = 200,
+    ) -> list[ClipboardItem]:
+        """Full-history search over text, OCR text and tags. Newest first.
+
+        ``query`` is a case-insensitive substring matched against the text
+        content, OCR text and tags. ``kind`` filters by 'text' or 'image';
+        ``tag`` requires the item to carry that exact tag.
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+        if query:
+            clauses.append(
+                "(text LIKE ? ESCAPE '\\' OR ocr_text LIKE ? ESCAPE '\\'"
+                " OR tags LIKE ? ESCAPE '\\')"
+            )
+            needle = _like_escape(query)
+            params += [needle, needle, needle]
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if favorites_only:
+            clauses.append("favorite = 1")
+        if tag:
+            clauses.append("(',' || tags || ',') LIKE ? ESCAPE '\\'")
+            params.append(_like_escape(tag, wrap=True))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT {COLUMNS} FROM items{where} ORDER BY id DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [self._row_to_item(r) for r in rows]
+
+    def list_tags(self) -> list[str]:
+        """All distinct tags in use, alphabetically."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT tags FROM items WHERE tags <> ''"
+            ).fetchall()
+        tags: set[str] = set()
+        for (blob,) in rows:
+            tags.update(t.strip() for t in blob.split(",") if t.strip())
+        return sorted(tags, key=str.lower)
+
+    def all_image_paths(self) -> set[str]:
+        """Image file paths referenced by any stored item (orphan detection)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT image_path FROM items WHERE image_path IS NOT NULL"
+            ).fetchall()
+        return {r[0] for r in rows}
+
     # -- writing -----------------------------------------------------------
 
     def _insert(self, item: ClipboardItem) -> int:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO items (kind, content_hash, text, image_path, ocr_text, pinned, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO items (kind, content_hash, text, image_path, ocr_text, pinned,"
+                " created_at, favorite, tags, ocr_status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     item.kind,
                     item.content_hash,
@@ -111,6 +204,9 @@ class ClipboardStore:
                     item.ocr_text,
                     int(item.pinned),
                     item.created_at,
+                    int(item.favorite),
+                    item.tags,
+                    item.ocr_status,
                 ),
             )
             self._conn.commit()
@@ -156,12 +252,40 @@ class ClipboardStore:
             )
             self._conn.commit()
 
-    def set_ocr_text(self, item_id: int, ocr_text: str) -> None:
+    def set_favorite(self, item_id: int, favorite: bool) -> None:
         with self._lock:
             self._conn.execute(
-                "UPDATE items SET ocr_text = ? WHERE id = ?", (ocr_text, item_id)
+                "UPDATE items SET favorite = ? WHERE id = ?", (int(favorite), item_id)
             )
             self._conn.commit()
+
+    def set_tags(self, item_id: int, tags: list[str] | str) -> None:
+        if isinstance(tags, list):
+            tags = ",".join(t.strip() for t in tags if t.strip())
+        with self._lock:
+            self._conn.execute(
+                "UPDATE items SET tags = ? WHERE id = ?", (tags, item_id)
+            )
+            self._conn.commit()
+
+    def set_ocr_text(self, item_id: int, ocr_text: str) -> None:
+        """Store OCR output. Marks the item's OCR status as done."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE items SET ocr_text = ?, ocr_status = ? WHERE id = ?",
+                (ocr_text, OCR_DONE, item_id),
+            )
+            self._conn.commit()
+
+    def set_ocr_status(self, item_id: int, status: str | None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE items SET ocr_status = ? WHERE id = ?", (status, item_id)
+            )
+            self._conn.commit()
+
+    def mark_ocr_failed(self, item_id: int) -> None:
+        self.set_ocr_status(item_id, OCR_FAILED)
 
     def delete(self, item_id: int) -> ClipboardItem | None:
         item = self.get(item_id)
@@ -221,3 +345,9 @@ class ClipboardStore:
             self._conn.execute("DELETE FROM items WHERE pinned = 0")
             self._conn.commit()
         return items
+
+
+def _like_escape(query: str, wrap: bool = False) -> str:
+    """Escape a user query for a LIKE pattern (substring match, no wildcards)."""
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%,{escaped},%" if wrap else f"%{escaped}%"

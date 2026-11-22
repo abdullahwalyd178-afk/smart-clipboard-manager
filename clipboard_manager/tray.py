@@ -53,6 +53,7 @@ class TrayApp:
             build_icon_image(),
             "Smart Clipboard",
             menu=pystray.Menu(
+                pystray.MenuItem("Open history window", self._open_window, default=True),
                 pystray.MenuItem(
                     lambda item: "Resume capture" if self.watcher.paused else "Pause capture",
                     self._toggle_pause,
@@ -65,6 +66,16 @@ class TrayApp:
         )
 
     # -- menu actions ------------------------------------------------------
+
+    def _open_window(self, icon=None, item=None) -> None:
+        import subprocess
+        import sys
+
+        subprocess.Popen(
+            [sys.executable, "-m", "clipboard_manager", "ui"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def _toggle_pause(self, icon=None, item=None) -> None:
         if self.watcher.paused:
