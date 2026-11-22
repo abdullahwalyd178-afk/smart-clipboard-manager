@@ -68,6 +68,7 @@ def cmd_run(args) -> int:
         ocr_engine=engine,
         poll_interval=config.poll_interval_seconds,
         copy_ocr_result_to_clipboard=config.copy_ocr_result_to_clipboard,
+        max_items=config.max_items,
     )
 
     stop = threading.Event()
@@ -90,9 +91,15 @@ def cmd_run(args) -> int:
         pass
     finally:
         stop.set()
-        watcher.stop()
+        watcher_stopped = watcher.stop()
         purge_thread.join(timeout=5)
-        store.close()
+        if watcher_stopped:
+            store.close()
+        else:
+            print(
+                "[smart-clipboard] watcher is still busy; leaving the database open until process exit",
+                file=sys.stderr,
+            )
     return 0
 
 
