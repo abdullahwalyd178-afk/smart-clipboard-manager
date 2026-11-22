@@ -28,7 +28,7 @@ A local, Windows-first system tray app that keeps a history of everything you co
 - السجل محلي بالكامل؛ الكود ده مفيهوش أي شبكة أو Telemetry.
   The history is fully local; this app has no networking or telemetry of any kind.
 - انتبه: أي حاجة بتعملها Copy — بما فيها كلمات السر — بتتسجل لمدة ٣ أيام. لو بتنسخ حاجة حساسة كتير، استخدم **Pause capture** من قائمة الـ Tray قبلها، ومتعملش Pin لحاجة حساسة (المثبّت مش بيتحذف أبدًا).
-  Anything you copy — including passwords — is recorded for up to 3 days. Use **Pause capture** before copying secrets, and don't pin sensitive items (pinned items never expire).
+  Anything you copy — including passwords and personal data — may be stored locally. Pause capture before copying sensitive data and never pin secrets. The SQLite history is not encrypted; do not use this app as a password manager.
 
 ## عن المعادلات الرياضية · About math equations
 
@@ -70,7 +70,7 @@ python -m clipboard_manager clear      # مسح كل العناصر غير ال�
 | `ocr_engine` | `"tesseract"` | `tesseract` / `easyocr` / `pix2tex` |
 | `ocr_language` | `"eng"` | لغات Tesseract |
 | `copy_ocr_result_to_clipboard` | `true` | نسخ نتيجة الـ OCR تلقائيًا جاهزة للـ Paste |
-| `max_items` | `500` | حد أقصى للعناصر (الأقدم غير المثبّت بيتحذف أولًا) |
+| `max_items` | `500` | حد أقصى للعناصر غير المثبتة (الأقدم يُحذف أولًا؛ `0` = بلا حد) |
 
 ## الاختبارات · Tests
 
@@ -79,7 +79,7 @@ pip install pytest
 pytest
 ```
 
-الاختبارات بتغطي: التخزين ومنع التكرار، الـ Pin وقاعدة الـ ٣ أيام، الاستمرار بعد إعادة التشغيل، مراقبة الحافظة، إن نتيجة الـ OCR مبتتسجلش كعنصر جديد ومبتكتبش فوق نص نسخته بعدها، واختبار OCR حقيقي على صورة مولّدة (بيتخطى تلقائيًا لو Tesseract مش متثبت).
+الاختبارات بتغطي: التخزين ومنع التكرار، الـ Pin وقاعدة الـ ٣ أيام، الاستمرار بعد إعادة التشغيل، مراقبة الحافظة، حد العناصر وتنظيف الصور، التحقق من الإعدادات، إن نتيجة الـ OCR مبتتسجلش كعنصر جديد ومبتكتبش فوق نص نسخته بعدها، واختبار OCR حقيقي على صورة مولّدة (بيتخطى تلقائيًا لو Tesseract مش متثبت).
 
 Tests cover: storage/dedup, pin + 3-day retention, restart persistence, clipboard watching, OCR auto-copy safety (no self-recapture, never overwrites a newer user copy), and a real Tesseract OCR run on a generated image (auto-skipped if Tesseract isn't installed).
 
