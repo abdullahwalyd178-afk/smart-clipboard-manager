@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from clipboard_manager.config import Config
 
 
@@ -34,9 +36,6 @@ def test_load_ignores_unknown_keys(tmp_path):
 def test_load_missing_file_returns_defaults(tmp_path):
     loaded = Config.load(tmp_path / "nope.json")
     assert loaded.retention_days == 3
-
-
-import pytest
 
 
 @pytest.mark.parametrize(
