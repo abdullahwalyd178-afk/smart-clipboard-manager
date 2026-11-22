@@ -315,3 +315,32 @@ def test_slow_ocr_does_not_block_clipboard_polling(store, images_dir):
     assert ocr.finished.wait(timeout=2)
     assert wait_until(lambda: store.get(image_item.id).ocr_text == "background OCR")
     assert watcher.stop(timeout=2) is True
+
+
+def test_stop_waits_for_queued_ocr_before_database_can_close(store, images_dir):
+    class BlockingOCR(FakeOCR):
+        def __init__(self):
+            super().__init__("finished OCR")
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def extract_text(self, path):
+            self.entered.set()
+            self.release.wait(timeout=2)
+            self.finished.set()
+            return self.result
+
+    provider = FakeProvider()
+    provider.image = PNG_A
+    ocr = BlockingOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
+
+    item = watcher.poll_once()
+    assert item is not None
+    assert ocr.entered.wait(timeout=1)
+
+    # The caller must keep SQLite open while OCR is still using it.
+    assert watcher.stop(timeout=0.01) is False
+    ocr.release.set()
+    assert watcher.stop(timeout=2) is True
+    assert store.get(item.id).ocr_text == "finished OCR"
