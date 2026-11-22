@@ -1,20 +1,20 @@
 """Clipboard monitoring loop.
 
-The watcher polls the clipboard on a background thread. ``poll_once`` does one
-check and is fully synchronous (including OCR) so tests can drive it directly;
-the production loop just calls it repeatedly, so a slow OCR pass never touches
-the UI thread - it only delays the next poll.
+The watcher polls the OS clipboard on a background thread. OCR runs on that
+worker thread (never the tray/UI thread); polling resumes after OCR completes.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
-import time
 from pathlib import Path
 from typing import Callable
 
 from .models import ClipboardItem
 from .storage import ClipboardStore
+
+logger = logging.getLogger(__name__)
 
 
 class ClipboardProvider:
@@ -39,6 +39,7 @@ class PyperclipPILProvider(ClipboardProvider):
         try:
             value = pyperclip.paste()
         except Exception:
+            logger.debug("Unable to read text clipboard", exc_info=True)
             return None
         return value if isinstance(value, str) and value else None
 
@@ -50,18 +51,22 @@ class PyperclipPILProvider(ClipboardProvider):
         try:
             data = ImageGrab.grabclipboard()
         except Exception:
+            logger.debug("Unable to read image clipboard", exc_info=True)
             return None
         if isinstance(data, Image.Image):
             buf = io.BytesIO()
             data.convert("RGB").save(buf, format="PNG")
             return buf.getvalue()
-        if isinstance(data, list) and data:  # clipboard held file path(s)
+        if isinstance(data, list) and data:
             path = Path(data[0])
             if path.is_file():
-                with Image.open(path) as img:
-                    buf = io.BytesIO()
-                    img.convert("RGB").save(buf, format="PNG")
-                    return buf.getvalue()
+                try:
+                    with Image.open(path) as img:
+                        buf = io.BytesIO()
+                        img.convert("RGB").save(buf, format="PNG")
+                        return buf.getvalue()
+                except (OSError, ValueError):
+                    logger.warning("Clipboard image file could not be read: %s", path)
         return None
 
     def set_text(self, text: str) -> None:
@@ -80,7 +85,13 @@ class ClipboardWatcher:
         poll_interval: float = 0.5,
         copy_ocr_result_to_clipboard: bool = True,
         on_new_item: Callable[[ClipboardItem], None] | None = None,
+        max_items: int = 500,
     ):
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be greater than zero")
+        if max_items < 0:
+            raise ValueError("max_items cannot be negative")
+
         self.store = store
         self.provider = provider
         self.images_dir = Path(images_dir)
@@ -88,50 +99,69 @@ class ClipboardWatcher:
         self.poll_interval = poll_interval
         self.copy_ocr_result_to_clipboard = copy_ocr_result_to_clipboard
         self.on_new_item = on_new_item
+        self.max_items = max_items
 
         self._last_hash: str | None = None
-        self._paused = False
+        self._pause_event = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-
-    # -- control -----------------------------------------------------------
+        self._lifecycle_lock = threading.Lock()
 
     @property
     def paused(self) -> bool:
-        return self._paused
+        return self._pause_event.is_set()
 
     def pause(self) -> None:
-        self._paused = True
+        self._pause_event.set()
 
     def resume(self) -> None:
-        self._paused = False
+        self._pause_event.clear()
 
     def start(self) -> None:
-        if self._thread is not None:
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="clipboard-watcher", daemon=True)
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._run, name="clipboard-watcher", daemon=True
+            )
+            self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
-            self._thread = None
+        with self._lifecycle_lock:
+            thread = self._thread
+        if thread is not None:
+            thread.join(timeout=max(0.0, timeout))
+            if not thread.is_alive():
+                with self._lifecycle_lock:
+                    if self._thread is thread:
+                        self._thread = None
+            else:
+                logger.warning("Clipboard watcher did not stop within %.1f seconds", timeout)
 
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
                 self.poll_once()
             except Exception:
-                pass  # a bad clipboard read or OCR failure must never kill the loop
+                logger.exception("Unexpected clipboard polling failure")
             self._stop.wait(self.poll_interval)
 
-    # -- one polling step (synchronous, test-friendly) ---------------------
+    def _apply_item_limit(self) -> None:
+        if self.max_items <= 0:
+            return
+        removed = self.store.enforce_max_items(self.max_items)
+        for item in removed:
+            if item.image_path:
+                try:
+                    Path(item.image_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove expired clipboard image: %s", item.image_path)
 
     def poll_once(self) -> ClipboardItem | None:
         """Check the clipboard once. Returns the new item, or None."""
-        if self._paused:
+        if self.paused:
             return None
 
         text = self.provider.get_text()
@@ -141,7 +171,6 @@ class ClipboardWatcher:
         png = self.provider.get_image_png_bytes()
         if png:
             return self._capture_image(png)
-
         return None
 
     def _capture_text(self, text: str) -> ClipboardItem | None:
@@ -150,9 +179,12 @@ class ClipboardWatcher:
             return None
         self._last_hash = digest
         item, is_new = self.store.add_text(text)
-        if is_new and self.on_new_item:
+        if not is_new:
+            return None
+        self._apply_item_limit()
+        if self.on_new_item:
             self.on_new_item(item)
-        return item if is_new else None
+        return item
 
     def _current_clipboard_hash(self) -> str | None:
         """Hash of whatever is on the clipboard right now (text or image)."""
@@ -164,7 +196,7 @@ class ClipboardWatcher:
             if png:
                 return ClipboardItem.hash_bytes(png)
         except Exception:
-            pass
+            logger.debug("Could not verify clipboard after OCR", exc_info=True)
         return None
 
     def _capture_image(self, png: bytes) -> ClipboardItem | None:
@@ -176,7 +208,12 @@ class ClipboardWatcher:
         self.images_dir.mkdir(parents=True, exist_ok=True)
         image_path = self.images_dir / f"{digest[:16]}.png"
         if not image_path.exists():
-            image_path.write_bytes(png)
+            temporary_path = image_path.with_suffix(".png.tmp")
+            try:
+                temporary_path.write_bytes(png)
+                temporary_path.replace(image_path)
+            finally:
+                temporary_path.unlink(missing_ok=True)
 
         item, is_new = self.store.add_image(str(image_path), digest)
         if not is_new:
@@ -186,24 +223,19 @@ class ClipboardWatcher:
             try:
                 ocr_text = self.ocr_engine.extract_text(str(image_path))
             except Exception:
+                logger.exception("OCR failed for clipboard image %s", image_path)
                 ocr_text = ""
             if ocr_text:
                 self.store.set_ocr_text(item.id, ocr_text)
                 item.ocr_text = ocr_text
-                if self.copy_ocr_result_to_clipboard:
-                    # OCR can take seconds; the user may have copied something
-                    # else meanwhile. Never clobber a newer user copy - only
-                    # place the result if the clipboard still holds the image
-                    # we just captured.
-                    if self._current_clipboard_hash() == digest:
-                        try:
-                            self.provider.set_text(ocr_text)
-                            # Don't re-capture the OCR text we just placed as a
-                            # brand-new clip; it already lives on the image item.
-                            self._last_hash = ClipboardItem.hash_text(ocr_text)
-                        except Exception:
-                            pass
+                if self.copy_ocr_result_to_clipboard and self._current_clipboard_hash() == digest:
+                    try:
+                        self.provider.set_text(ocr_text)
+                        self._last_hash = ClipboardItem.hash_text(ocr_text)
+                    except Exception:
+                        logger.warning("Could not copy OCR result to clipboard", exc_info=True)
 
+        self._apply_item_limit()
         if self.on_new_item:
             self.on_new_item(item)
         return item
