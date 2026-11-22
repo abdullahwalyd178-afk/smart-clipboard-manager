@@ -68,6 +68,7 @@ def cmd_run(args) -> int:
         ocr_engine=engine,
         poll_interval=config.poll_interval_seconds,
         copy_ocr_result_to_clipboard=config.copy_ocr_result_to_clipboard,
+        max_items=config.max_items,
     )
 
     stop = threading.Event()
