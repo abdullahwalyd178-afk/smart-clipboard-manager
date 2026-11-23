@@ -294,6 +294,24 @@ class HistoryWindow:
         ttk.Button(win, text="Close (Esc)", command=win.destroy).pack(side=tk.BOTTOM, pady=(0, 8))
         frame = ttk.Frame(win)
         frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self._viewer_backend = "text"
+        self._viewer_backend_error = None
+        if sys.platform == "win32":
+            # Native Rich Edit viewer: Tk 8.6 on Windows cannot lay out RTL
+            # paragraphs (pixel evidence), so the win32 viewer embeds the OS
+            # text stack instead. Selection/copy are logical and exact.
+            try:
+                from . import win_richedit
+
+                if win_richedit.available():
+                    self._view_full_richedit(win, frame, body)
+                    self._viewer_backend = "richedit"
+                    return
+                self._viewer_backend_error = "win_richedit.available() is False"
+            except Exception as exc:
+                # Diagnosed fallback: the probe asserts on this so a broken
+                # native path can never silently pass as the Tk viewer.
+                self._viewer_backend_error = f"{type(exc).__name__}: {exc}"
         text = tk.Text(frame, wrap=tk.WORD, width=72, height=20)
         if sys.platform == "win32":
             # Segoe UI is the font the render probe proved joins and shapes
@@ -351,6 +369,26 @@ class HistoryWindow:
         text.bind("<Key>", lambda e: None if (e.state & 0x4 or e.keysym == "Escape") else "break")
         win.bind("<Escape>", lambda _e: win.destroy())
         text.focus_set()
+
+    def _view_full_richedit(self, win: tk.Toplevel, frame: ttk.Frame, body: str) -> None:
+        """Embed a read-only Rich Edit 4.1 control as the full-content viewer.
+
+        The control stores logical text and reports logical UTF-16 selection
+        offsets, so native Ctrl+C / WM_COPY returns exact logical text with
+        no display transform. Re-wrap is native, so the window is resizable.
+        """
+        from . import win_richedit
+
+        win.resizable(True, True)
+        win.update_idletasks()
+        viewer = win_richedit.RichEditViewer(frame.winfo_id(), on_escape=win.destroy)
+        self._viewer_richedit = viewer  # probe/test hook
+        frame.bind("<Configure>", lambda e: viewer.resize(e.width, e.height))
+        viewer.resize(max(frame.winfo_width(), 100), max(frame.winfo_height(), 100))
+        lines = body.split("\n")
+        viewer.set_text(body, rtl_paragraphs=[base_is_rtl(l) for l in lines])
+        win.bind("<Escape>", lambda _e: win.destroy())
+        viewer.focus()
 
     def _viewer_copy(self, widget: tk.Text, lines: list[str]) -> str:
         """Copy the Text selection as its original logical text.
