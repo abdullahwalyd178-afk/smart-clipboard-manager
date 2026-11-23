@@ -45,3 +45,49 @@ def test_sweep_waits_for_capture_lock_before_delete(store, images_dir):
     assert not t.is_alive()
     assert done and done[0] == [orphan]
     assert not orphan.exists()
+
+
+def test_sweep_waits_for_capture_lock_subprocess(store, images_dir):
+    # Cross-platform version of the race test: a real second PROCESS holds the
+    # shared lock (simulating capture between "PNG written" and "row inserted");
+    # the sweep must block on the lock instead of deleting the file. Runs on
+    # Windows CI too, where the threading variant above is POSIX-only.
+    import subprocess
+    import sys
+
+    orphan = images_dir / "inflight.png"
+    orphan.write_bytes(b"png")
+
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys, time\n"
+            "from clipboard_manager.file_lock import image_files_lock\n"
+            "with image_files_lock(sys.argv[1]):\n"
+            "    print('READY', flush=True)\n"
+            "    time.sleep(30)\n",
+            str(images_dir),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "READY"
+        done = []
+
+        def run_sweep():
+            done.append(sweep_orphan_images(store, images_dir))
+
+        t = threading.Thread(target=run_sweep, daemon=True)
+        t.start()
+        time.sleep(0.5)
+        # while the other process holds the lock the sweep must be blocked
+        assert orphan.exists()
+        assert done == []
+    finally:
+        holder.kill()
+    t.join(timeout=15)
+    assert not t.is_alive()
+    assert done and done[0] == [orphan]
+    assert not orphan.exists()
