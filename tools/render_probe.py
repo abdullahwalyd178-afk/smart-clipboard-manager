@@ -59,6 +59,9 @@ FIXTURES = {
     # word-reversed, letters logical: what the fixed Windows viewer feeds Tk.
     # Expect readable words with كتاب at the RIGHT = correct RTL paragraph.
     "three_wordrev": " ".join(_THREE.split(" ")[::-1]),
+    # transform output for the bracket fixture: does Windows mirror bracket
+    # glyphs during its per-word letter reversal? Decides manual mirroring.
+    "paren_wordrev": None,  # filled below via reorder_words_with_map
     # --- brackets / quotes + Latin digits -----------------------------------
     "paren_number": "(تقرير 2026) رقم 12.5 في «القائمة» ثم [نهائي] و(ملاحظة 7)",
     # --- Arabic-Indic digits (AN) between words and next to separators ------
@@ -86,6 +89,15 @@ try:
 except Exception as _exc:  # missing arabic-reshaper / python-bidi: skip, not a render failure
     print(f"shaped fixtures unavailable: {_exc}", flush=True)
 
+# The viewer's actual Windows transform applied to the bracket fixture.
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from clipboard_manager.text_shaping import reorder_words_with_map as _rwm
+    FIXTURES["paren_wordrev"] = _rwm(FIXTURES["paren_number"])[0]
+except Exception as _exc:
+    FIXTURES["paren_wordrev"] = FIXTURES["paren_number"]  # fallback: still comparable
+    print(f"paren_wordrev transform unavailable: {_exc}", flush=True)
+
 TEXT_GROUPS = {
     "text_core": (
         "short_arabic", "long_arabic", "mixed", "punct_edges",
@@ -93,7 +105,7 @@ TEXT_GROUPS = {
     ),
     "text_ordering": (
         "three_logical", "three_letters_rev", "three_fully_rev",
-        "three_wordrev", "paren_number",
+        "three_wordrev", "paren_number", "paren_wordrev",
     ),
     "text_an": (
         "an_between_words", "an_separators", "an_latin_neighbors",
