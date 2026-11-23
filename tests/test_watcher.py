@@ -353,7 +353,7 @@ def test_failed_persistence_does_not_mark_clip_as_seen(store, images_dir, monkey
 
     original_add_text = store.add_text
 
-    def fail_once(text):
+    def fail_once(*args, **kwargs):
         raise RuntimeError("temporary database failure")
 
     provider.text = "retry this clip"
