@@ -60,9 +60,9 @@ def test_partial_selection_mid_word(viewer):
     """A logical slice inside one Arabic word comes back exactly."""
     win_richedit, rv, _root = viewer
     rv.set_text(BODY)
-    a, b = 1, 4  # inside the first word هذا
+    a, b = 1, 3  # inside the first word هذا
     rv.set_sel(a, b)
-    assert rv.get_sel_text() == BODY[1:4] == "ذا"
+    assert rv.get_sel_text() == BODY[1:3] == "ذا"
 
 
 def test_digit_run_selection(viewer):
