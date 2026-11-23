@@ -199,7 +199,7 @@ def main():
             win = tk.Toplevel(root)
             try:
                 win.title(f"probe-{label}")
-                w_px = min(requested_w, screen_w)
+                w_px = min(requested_w, screen_w - 16)  # leave room for window borders (8px each side)
                 h_px = min(height, max(100, screen_h - 80))
                 win.geometry(f"{w_px}x{h_px}+0+0")
                 win.attributes("-topmost", True)
