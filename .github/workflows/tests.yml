@@ -30,7 +30,8 @@ jobs:
           git config user.email "ci-render@localhost"
           git config user.name "ci-render"
           git fetch origin ci-render || true
-          git checkout -B ci-render $(git rev-parse origin/ci-render 2>/dev/null || git rev-parse HEAD)
+          BASE=$(git rev-parse --verify -q origin/ci-render || git rev-parse HEAD)
+          git checkout -B ci-render "$BASE"
           mkdir -p captures/$GITHUB_RUN_ID
           cp -r render-out/* captures/$GITHUB_RUN_ID/ 2>/dev/null || echo "no captures"
           git add captures
