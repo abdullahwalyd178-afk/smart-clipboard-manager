@@ -464,3 +464,31 @@ def test_ocr_queue_is_bounded_without_dropping_captured_images(store, images_dir
     assert watcher.stop(timeout=0.01) is False
     ocr.release.set()
     assert watcher.stop(timeout=3) is True
+
+
+def test_failed_image_insert_cleans_only_the_newly_created_file(store, images_dir, monkeypatch):
+    from clipboard_manager.models import ClipboardItem
+
+    provider = FakeProvider()
+    watcher = make_watcher(store, images_dir, provider)
+    digest = ClipboardItem.hash_bytes(PNG_A)
+    image_path = Path(images_dir) / f"{digest[:16]}.png"
+
+    def fail_insert(*args, **kwargs):
+        raise RuntimeError("database write failed")
+
+    provider.image = PNG_A
+    monkeypatch.setattr(store, "add_image", fail_insert)
+    import pytest
+    with pytest.raises(RuntimeError, match="database write failed"):
+        watcher.poll_once()
+    assert not image_path.exists()
+    assert watcher._last_hash is None
+
+    # A file that predates this failed attempt may be shared/referenced;
+    # cleanup must never delete it.
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image_path.write_bytes(b"pre-existing image")
+    with pytest.raises(RuntimeError, match="database write failed"):
+        watcher.poll_once()
+    assert image_path.read_bytes() == b"pre-existing image"

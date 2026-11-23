@@ -310,16 +310,35 @@ class ClipboardWatcher:
 
             self.images_dir.mkdir(parents=True, exist_ok=True)
             image_path = self.images_dir / f"{digest[:16]}.png"
+            created_image_file = False
             if not image_path.exists():
                 temporary_path = image_path.with_suffix(".png.tmp")
                 try:
                     temporary_path.write_bytes(png)
                     temporary_path.replace(image_path)
+                    created_image_file = True
                 finally:
                     temporary_path.unlink(missing_ok=True)
 
             # Do not mark this digest as seen until SQLite confirms the write.
-            item, is_new = self.store.add_image(str(image_path), digest)
+            try:
+                item, is_new = self.store.add_image(str(image_path), digest)
+            except Exception:
+                if created_image_file:
+                    try:
+                        # Another record may already reference the same digest.
+                        existing = self.store.get_by_hash(digest)
+                        if existing is None or existing.image_path != str(image_path):
+                            image_path.unlink(missing_ok=True)
+                    except Exception:
+                        # If the database is unavailable, leave cleanup to the
+                        # startup orphan-file maintenance rather than risk data loss.
+                        logger.warning(
+                            "Could not verify failed image persistence cleanup: %s",
+                            image_path,
+                            exc_info=True,
+                        )
+                raise
             self._last_hash = digest
 
         if not is_new:
