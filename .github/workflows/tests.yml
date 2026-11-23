@@ -34,7 +34,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          { grep -E "PROBE_|Error|Traceback" render-probe-out.txt | head -25 | while IFS= read -r l; do echo "::error::$l"; done; } || true
+          { grep -E "PROBE_|Error|Traceback|^  - " render-probe-out.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done; } || true
 
       - if: always()
         shell: bash
@@ -47,7 +47,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          { grep -E "PROBE_|Error|Traceback" viewer-probe-out.txt | head -25 | while IFS= read -r l; do echo "::error::$l"; done; } || true
+          { grep -E "PROBE_|Error|Traceback|^  - " viewer-probe-out.txt | head -40 | while IFS= read -r l; do echo "::error::$l"; done; } || true
       - name: Surface render metrics as annotation
         if: always()
         shell: bash
