@@ -19,6 +19,7 @@ from tkinter import messagebox, simpledialog, ttk
 
 from .models import IMAGE, TEXT
 from .storage import ClipboardStore
+from .text_shaping import base_is_rtl, shape_for_display
 from .watcher import ClipboardProvider
 
 logger = logging.getLogger(__name__)
@@ -66,9 +67,14 @@ class HistoryWindow:
         top = ttk.Frame(self.root, padding=6)
         top.pack(fill=tk.X)
         ttk.Label(top, text="Search:").pack(side=tk.LEFT)
+        # search_var always holds the LOGICAL text (used for filtering);
+        # the entry widget only shows the shaped display copy.
         self.search_var = tk.StringVar()
-        entry = ttk.Entry(top, textvariable=self.search_var, width=32)
+        self._search_display_var = tk.StringVar()
+        entry = ttk.Entry(top, textvariable=self._search_display_var, width=32)
         entry.pack(side=tk.LEFT, padx=(4, 10))
+        self._search_entry = entry
+        self._bind_shaped_input(entry)
         entry.bind("<KeyRelease>", lambda _e: self.refresh())
         self.filter_var = tk.StringVar(value=FILTERS[0])
         combo = ttk.Combobox(
@@ -94,10 +100,12 @@ class HistoryWindow:
         self.tree.pack(fill=tk.BOTH, expand=True, padx=6)
         self.tree.bind("<Return>", lambda _e: self.copy_back())
         self.tree.bind("<Double-1>", lambda _e: self.copy_back())
+        self.tree.bind("<F2>", lambda _e: self.view_full())
 
         buttons = ttk.Frame(self.root, padding=6)
         buttons.pack(fill=tk.X)
         ttk.Button(buttons, text="Copy back (Enter)", command=self.copy_back).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="View full (F2)", command=self.view_full).pack(side=tk.LEFT, padx=4)
         ttk.Button(buttons, text="Pin/Unpin", command=self.toggle_pin).pack(side=tk.LEFT, padx=4)
         ttk.Button(buttons, text="Favorite", command=self.toggle_favorite).pack(side=tk.LEFT)
         ttk.Button(buttons, text="Edit tags", command=self.edit_tags).pack(side=tk.LEFT, padx=4)
@@ -107,6 +115,72 @@ class HistoryWindow:
 
         entry.focus_set()
         self.refresh()
+
+    # -- shaped search input -------------------------------------------------
+    #
+    # Tk on X11 draws Entry text without bidi reordering, so Arabic typed
+    # into a plain Entry appears reversed. The entry below is display-only:
+    # every edit is intercepted, the LOGICAL text lives in self.search_var,
+    # and the widget shows shape_for_display(logical). Cursor is pinned to
+    # the visual end of the text (start for RTL, end for LTR).
+
+    def _bind_shaped_input(self, entry: ttk.Entry) -> None:
+        entry.bind("<Key>", self._on_search_key)
+        entry.bind("<<Paste>>", self._on_search_paste)
+
+    def _on_search_key(self, event: tk.Event) -> str | None:
+        if event.state & 0x4:  # Ctrl combos (copy/all/...) keep default behavior
+            return None
+        text = self.search_var.get()
+        if event.keysym == "BackSpace":
+            text = text[:-1]
+        elif event.keysym == "Delete":
+            text = ""
+        elif event.char and event.char.isprintable():
+            text += event.char
+        else:
+            return None  # arrows, Tab, F-keys: default behavior
+        self._set_search_text(text)
+        return "break"
+
+    def _on_search_paste(self, _event: tk.Event) -> str:
+        try:
+            text = self.search_var.get() + self.root.clipboard_get()
+        except tk.TclError:
+            text = self.search_var.get()
+        self._set_search_text(text)
+        return "break"
+
+    def _set_search_text(self, text: str) -> None:
+        self.search_var.set(text)
+        display = shape_for_display(text)
+        self._search_display_var.set(display)
+        if display:
+            self._search_entry.icursor(0 if base_is_rtl(text) else tk.END)
+        self.refresh()
+
+    # -- full-content viewer --------------------------------------------------
+
+    def view_full(self) -> None:
+        item_id = self._selected_id()
+        if item_id is None:
+            return
+        item = self.store.get(item_id)
+        if item is None:
+            return
+        body = item.text or item.ocr_text or ""
+        if not body and item.image_path:
+            body = f"[image: {item.image_path}]"
+        win = tk.Toplevel(self.root)
+        win.title("Full content")
+        win.geometry("640x400")
+        meta = f"{item.kind} - copied {item.created_at}"
+        if item.tags:
+            meta += " - tags: " + item.tags.replace(",", ", ")
+        ttk.Label(win, text=meta).pack(anchor=tk.W, padx=8, pady=(8, 0))
+        msg = tk.Message(win, text=shape_for_display(body), width=600)
+        msg.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        win.bind("<Escape>", lambda _e: win.destroy())
 
     # -- data ---------------------------------------------------------------
 

@@ -13,6 +13,6 @@ pystray>=0.19
 # Dev:
 #   pip install pytest
 
-# Optional: correct Arabic display in the history window (Tk does no RTL shaping).
-arabic_reshaper>=3.0.0
-python-bidi>=0.4.2
+# Arabic/RTL display shaping for Tk on Linux/X11 (Windows/macOS shape via the OS text stack).
+arabic-reshaper>=3.0.0; sys_platform == "linux"
+python-bidi>=0.4.2; sys_platform == "linux"
