@@ -1,3 +1,4 @@
+import pytest
 """Platform-independent tests for the Windows word-reorder display transform.
 
 Windows Tk 8.6 reverses letters inside each space-delimited Arabic word but
@@ -113,3 +114,22 @@ def test_wrap_concat_invariant_on_fixtures():
             rows = wrap_logical_line(line, _m, width)
             assert "".join(rows) == line
             assert all(r for r in rows)
+
+
+def test_display_text_win32_uses_word_reorder(monkeypatch):
+    """Treeview/preview display on win32 must take the word-reorder path too."""
+    from clipboard_manager import ui
+
+    monkeypatch.setattr(ui.sys, "platform", "win32")
+    logical = "مرحبا بالعالم"
+    assert ui._display_text(logical) == " ".join(logical.split(" ")[::-1])
+
+
+def test_display_text_nonwin32_keeps_shaped_path(monkeypatch):
+    from clipboard_manager import ui
+
+    pytest.importorskip("arabic_reshaper")
+    pytest.importorskip("bidi")
+    monkeypatch.setattr(ui.sys, "platform", "linux")
+    out = ui._display_text("مرحبا بالعالم")
+    assert out != "مرحبا بالعالم"  # shaped presentation forms, not logical
