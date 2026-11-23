@@ -11,7 +11,7 @@ import os
 import sys
 import time
 
-OUT = os.path.join("ci-render", "out")
+OUT = "render-out"
 os.makedirs(OUT, exist_ok=True)
 
 FIXTURES = {
