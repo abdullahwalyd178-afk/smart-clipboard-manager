@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from clipboard_manager.image_cleanup import (
+from clipboard_manager.models import IMAGE, ClipboardItem\nfrom clipboard_manager.image_cleanup import (
     clear_unpinned,
     delete_item,
     purge_and_enforce,
@@ -90,4 +90,27 @@ def test_image_cleanup_waits_for_capture_lock_on_all_platforms(
     worker.join(timeout=5)
     assert not worker.is_alive()
     assert store.get(item.id) is None
+    assert not image_path.exists()
+
+
+def test_cleanup_keeps_image_while_another_history_row_references_it(
+    store, images_dir
+):
+    item, image_path = _add_image(store, images_dir)
+    duplicate = ClipboardItem(
+        id=None,
+        kind=IMAGE,
+        content_hash="second-reference",
+        image_path=str(image_path),
+        created_at=ClipboardItem.utcnow_iso(),
+    )
+    duplicate.id = store._insert(duplicate)
+
+    delete_item(store, item.id, images_dir)
+
+    assert store.get(item.id) is None
+    assert store.get(duplicate.id) is not None
+    assert image_path.exists()
+
+    delete_item(store, duplicate.id, images_dir)
     assert not image_path.exists()
