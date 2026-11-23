@@ -41,6 +41,7 @@ EM_SETSEL = 0x00B1
 EM_EXGETSEL = 0x0434
 EM_GETSELTEXT = 0x043E
 EM_SETCHARFORMAT = 0x0444
+EM_GETPARAFORMAT = 0x043D
 EM_SETPARAFORMAT = 0x0447
 SCF_SELECTION = 1
 SCF_ALL = 4
@@ -187,6 +188,8 @@ class RichEditViewer:
             raise RuntimeError("CreateWindowExW(RICHEDIT50W) failed")
         self.hwnd = hwnd
         self.on_escape = on_escape
+        # Per-paragraph diagnostics consumed by the Windows CI probe.
+        self.paragraph_format_results: list[dict[str, int]] = []
         # Subclass so Escape reaches us while the control has focus.
         self._proc = _WNDPROC(self._wndproc)  # keep a reference alive
         self._orig_proc = _user32.SetWindowLongPtrW(
@@ -211,28 +214,70 @@ class RichEditViewer:
         cf.yHeight = size_pt * 20  # twips
         cf.szFaceName = font_face
         _user32.SendMessageW(self.hwnd, EM_SETCHARFORMAT, SCF_ALL, ctypes.byref(cf))
-        if rtl_paragraphs:
+        self.paragraph_format_results = []
+        if rtl_paragraphs is not None:
             self._apply_paragraph_directions(text, rtl_paragraphs)
         _user32.SendMessageW(self.hwnd, EM_SETSEL, 0, 0)
 
     def _apply_paragraph_directions(self, text: str, flags: list[bool]) -> None:
         lines = text.split("\n")
+        if len(flags) != len(lines):
+            raise ValueError(
+                f"rtl_paragraphs has {len(flags)} entries for {len(lines)} paragraphs"
+            )
+        if ctypes.sizeof(PARAFORMAT2) != 188:
+            raise RuntimeError(
+                f"PARAFORMAT2 ctypes layout is {ctypes.sizeof(PARAFORMAT2)} bytes; expected 188"
+            )
+
         pos = 0
-        for line, is_rtl in zip(lines, flags):
+        for index, (line, is_rtl) in enumerate(zip(lines, flags)):
             start = pos
-            pos += u16len(line) + 1  # +1 for the (stored CR) line break
+            has_paragraph_mark = index < len(lines) - 1
+            end = start + u16len(line) + (1 if has_paragraph_mark else 0)
+            pos = end
             if not is_rtl:
                 continue
-            _user32.SendMessageW(self.hwnd, EM_SETSEL, start, pos)
+
+            _user32.SendMessageW(self.hwnd, EM_SETSEL, start, end)
             pf = PARAFORMAT2()
             pf.cbSize = ctypes.sizeof(PARAFORMAT2)
             pf.dwMask = PFM_RTLPARA | PFM_ALIGNMENT
             pf.wEffects = PFE_RTLPARA
             pf.wAlignment = PFA_RIGHT
-            # EM_SETPARAFORMAT wParam must be 0 (SCF_* is EM_SETCHARFORMAT-only);
-            # a nonzero wParam makes the call fail silently and the paragraph
-            # keeps its default (left) alignment.
-            _user32.SendMessageW(self.hwnd, EM_SETPARAFORMAT, 0, ctypes.byref(pf))
+
+            set_result = _user32.SendMessageW(
+                self.hwnd, EM_SETPARAFORMAT, 0, ctypes.byref(pf)
+            )
+            if not set_result:
+                raise RuntimeError(
+                    f"EM_SETPARAFORMAT failed for paragraph {index} "
+                    f"(selection {start}:{end})"
+                )
+
+            actual = PARAFORMAT2()
+            actual.cbSize = ctypes.sizeof(PARAFORMAT2)
+            _user32.SendMessageW(
+                self.hwnd, EM_GETPARAFORMAT, 0, ctypes.byref(actual)
+            )
+            required_mask = PFM_RTLPARA | PFM_ALIGNMENT
+            if (actual.dwMask & required_mask) != required_mask:
+                raise RuntimeError(
+                    f"EM_GETPARAFORMAT omitted required mask bits for paragraph {index}: "
+                    f"0x{actual.dwMask:08x}"
+                )
+            if actual.wAlignment != PFA_RIGHT or not (actual.wEffects & PFE_RTLPARA):
+                raise RuntimeError(
+                    f"Rich Edit paragraph {index} readback mismatch: "
+                    f"alignment={actual.wAlignment}, effects=0x{actual.wEffects:04x}"
+                )
+            self.paragraph_format_results.append({
+                "paragraph": index,
+                "set_result": int(set_result),
+                "mask": int(actual.dwMask),
+                "alignment": int(actual.wAlignment),
+                "effects": int(actual.wEffects),
+            })
 
     def get_text(self) -> str:
         n = _user32.SendMessageW(self.hwnd, WM_GETTEXTLENGTH, 0, 0)
