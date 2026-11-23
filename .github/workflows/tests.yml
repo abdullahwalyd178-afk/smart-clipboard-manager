@@ -2,7 +2,7 @@ name: tests
 on: [push, pull_request]
 jobs:
   pytest:
-    runs-on: windows-latest
+    runs-on: windows-2022  # pinned: windows-2025 image 20261116.315.1 ships broken Tcl (init.tcl unreadable)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
