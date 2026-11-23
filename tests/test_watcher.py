@@ -608,3 +608,39 @@ def test_item_limit_waits_for_image_file_lock_before_deleting_evicted_image(
     assert not worker.is_alive()
     assert store.get(old_image.id) is None
     assert not image_path.exists()
+
+
+def test_failed_image_insert_keeps_path_referenced_by_another_row(
+    store, images_dir, monkeypatch
+):
+    """A failed insert must not unlink a path another row still references."""
+    from clipboard_manager.models import IMAGE, ClipboardItem
+
+    provider = FakeProvider()
+    provider.image = PNG_A
+    watcher = make_watcher(store, images_dir, provider)
+    digest = ClipboardItem.hash_bytes(PNG_A)
+    image_path = images_dir / f"{digest[:16]}.png"
+
+    # Simulate an older/different row that shares the deterministic image path.
+    referenced = ClipboardItem(
+        id=None,
+        kind=IMAGE,
+        content_hash="different-content-hash",
+        image_path=str(image_path),
+        created_at=ClipboardItem.utcnow_iso(),
+    )
+    referenced.id = store._insert(referenced)
+
+    def fail_insert(*_args, **_kwargs):
+        raise RuntimeError("simulated database write failure")
+
+    monkeypatch.setattr(store, "add_image", fail_insert)
+    import pytest
+
+    with pytest.raises(RuntimeError, match="simulated database write failure"):
+        watcher.poll_once()
+
+    assert store.get(referenced.id) is not None
+    assert store.image_path_referenced(str(image_path))
+    assert image_path.exists()
