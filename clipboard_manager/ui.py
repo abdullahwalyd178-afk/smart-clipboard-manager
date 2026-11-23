@@ -77,6 +77,10 @@ class HistoryWindow:
         entry = ttk.Entry(top, textvariable=self._search_display_var if shaping_active() else self.search_var, width=32)
         entry.pack(side=tk.LEFT, padx=(4, 10))
         self._search_entry = entry
+        # Map state is always initialized (handlers are exercised on every
+        # platform); only the event override is Linux/X11-only, so Windows
+        # keeps its native Entry editing behaviour.
+        self._search_d2l: list[int] = []
         if shaping_active():
             self._bind_shaped_input(entry)
         entry.bind("<KeyRelease>", lambda _e: self.refresh())
@@ -133,7 +137,6 @@ class HistoryWindow:
         entry.bind("<<Paste>>", self._on_search_paste)
         entry.bind("<<Copy>>", self._on_search_copy)
         entry.bind("<<Cut>>", self._on_search_cut)
-        self._search_d2l: list[int] = []
 
     # All editing happens in LOGICAL order on search_var; the entry shows the
     # shaped display copy and self._search_d2l maps display index -> logical
