@@ -129,6 +129,44 @@ def main() -> int:
         print(f"captured {path} extrema=({lo},{hi})", flush=True)
         if hi - lo < 8:
             failures.append(f"uniform viewer capture ({lo}..{hi})")
+        elif sys.platform == "win32" and richedit is not None:
+            # Alignment from the actual pixels: every text row band of an RTL
+            # paragraph must reach the right edge of the control. Row 1 spans
+            # the full width either way, so a short row is what proves it.
+            px = g.load()
+            wdt, hgt = g.size
+            bands = []
+            in_band = False
+            for yy in range(2, hgt - 2):
+                row_has = any(px[xx, yy] < 100 for xx in range(2, wdt - 2))
+                if row_has and not in_band:
+                    band_start, in_band = yy, True
+                elif not row_has and in_band:
+                    if yy - band_start > 3:
+                        bands.append((band_start, yy))
+                    in_band = False
+            if in_band:
+                bands.append((band_start, hgt - 2))
+            right_gaps = []
+            for (y0, y1) in bands:
+                max_x = 0
+                for yy in range(y0, y1):
+                    for xx in range(wdt - 3, 1, -1):
+                        if px[xx, yy] < 100:
+                            max_x = max(max_x, xx)
+                            break
+                right_gaps.append(wdt - 1 - max_x)
+            short_rows = [gp for gp in right_gaps]
+            if bands and max(short_rows) < 25:
+                print(
+                    "::notice::RICHEDIT_ALIGN_OK every text row reaches the "
+                    f"right edge (gaps {right_gaps})",
+                    flush=True,
+                )
+            else:
+                failures.append(
+                    f"rows not right-aligned: right-edge gaps {right_gaps}px"
+                )
 
     # -- copy: full selection must return the exact logical content ----------
     if richedit is not None:
@@ -168,6 +206,72 @@ def main() -> int:
                 print("::notice::RICHEDIT_MULTILINE_OK cross-paragraph selection keeps logical newline", flush=True)
             else:
                 failures.append(f"richedit cross-paragraph mismatch: {got!r}")
+            # Visual mouse drag across an LTR/RTL boundary: the selected
+            # pixels must map back to an exact logical slice on the clipboard.
+            import ctypes
+            from ctypes import wintypes
+
+            EM_POSFROMCHAR = 0x00D6
+
+            def char_point(i):
+                r = wre._user32.SendMessageW(richedit.hwnd, EM_POSFROMCHAR, i, 0)
+                pt = wintypes.POINT(
+                    ctypes.c_short(r & 0xFFFF).value,
+                    ctypes.c_short((r >> 16) & 0xFFFF).value,
+                )
+                wre._user32.ClientToScreen(richedit.hwnd, ctypes.byref(pt))
+                return pt.x, pt.y
+
+            bnd = CONTENT.index("budget")
+            x1, y1 = char_point(bnd - 5)  # inside the Arabic run before the boundary
+            x2, y2 = char_point(bnd + 3)  # inside "budget"
+            y1 += 6
+            y2 += 6
+            wre._user32.SetCursorPos(x1, y1)
+            wre._user32.mouse_event(0x0002, 0, 0, 0, 0)  # LEFTDOWN
+            for step in range(1, 9):
+                wre._user32.SetCursorPos(
+                    x1 + (x2 - x1) * step // 8, y1 + (y2 - y1) * step // 8
+                )
+                wre._user32.mouse_event(0x0001, 0, 0, 0, 0)  # MOVE
+                time.sleep(0.01)
+            wre._user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
+            for _ in range(10):
+                root.update()
+                time.sleep(0.02)
+            sa, sb = richedit.get_sel()
+            got = grab_clip()
+            want = wre.u16slice(CONTENT, sa, sb) if sb > sa else ""
+            has_ar = any("\u0600" <= c <= "\u06ff" for c in got)
+            has_lat = any("a" <= c.lower() <= "z" for c in got)
+            if sb > sa and got == want and sa < bnd < sb and has_ar and has_lat:
+                print(
+                    "::notice::RICHEDIT_DRAG_OK mouse drag across the LTR/RTL "
+                    "boundary copied the exact logical slice",
+                    flush=True,
+                )
+            else:
+                failures.append(
+                    f"drag selection bad: sel=({sa},{sb}) clip={got!r} want={want!r}"
+                )
+            # Paragraph format readback: the RTL/alignment bits must actually
+            # be stored on an RTL paragraph.
+            pf = wre.PARAFORMAT2()
+            pf.cbSize = ctypes.sizeof(wre.PARAFORMAT2)
+            richedit.set_sel(0, 1)
+            wre._user32.SendMessageW(
+                richedit.hwnd, 0x0435, 0, ctypes.byref(pf)  # EM_GETPARAFORMAT
+            )
+            if pf.wEffects & wre.PFE_RTLPARA and pf.wAlignment == wre.PFA_RIGHT:
+                print(
+                    "::notice::RICHEDIT_PARAFORMAT_OK RTL paragraph carries "
+                    "PFE_RTLPARA + PFA_RIGHT",
+                    flush=True,
+                )
+            else:
+                failures.append(
+                    f"paraformat readback: effects=0x{pf.wEffects:x} align={pf.wAlignment}"
+                )
             # Esc reaches the close path while the HWND has focus
             richedit._wndproc(richedit.hwnd, wre.WM_KEYDOWN, wre.VK_ESCAPE, 0)
             root.update()
