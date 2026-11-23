@@ -51,7 +51,7 @@ def test_logical_roundtrip(viewer):
 
 def test_rtl_paragraph_format_is_applied_and_read_back(viewer):
     _win_richedit, rv, _root = viewer
-    body = "فقرة عربية قصيرة\\nEnglish paragraph"
+    body = "فقرة عربية قصيرة\nEnglish paragraph"
     rv.set_text(body, rtl_paragraphs=[True, False])
 
     assert len(rv.paragraph_format_results) == 1
@@ -67,7 +67,7 @@ def test_rtl_paragraph_format_is_applied_and_read_back(viewer):
 def test_rtl_paragraph_flags_must_match_paragraph_count(viewer):
     _win_richedit, rv, _root = viewer
     with pytest.raises(ValueError, match="entries"):
-        rv.set_text("first\\nsecond", rtl_paragraphs=[True])
+        rv.set_text("first\nsecond", rtl_paragraphs=[True])
 
 
 def test_full_selection_returns_exact_logical(viewer):
