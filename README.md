@@ -37,6 +37,10 @@ A local, Windows-first system tray app that keeps a history of everything you co
     Suspected-secret detection (all platforms): text that looks like a credential is not stored. Heuristics are a seatbelt, not a guarantee - **Pause capture** remains the certain way to keep a copy out of the history.
 - حدود صريحة: اكتشاف التطبيق النشط ويندوز فقط (مفيش طريقة موثوقة في المكتبة القياسية على لينكس/ماك)، والاكتشاف التلقائي مش بيمسك كل الأنواع.
   Honest limits: foreground detection is Windows-only, and heuristics cannot catch every secret.
+- **حدود حماية الصور تحديدًا:** فلترة المحتوى التلقائية بتشتغل على النصوص قبل التخزين، لكن الصورة (سكرينشوت) بتتخزن على القرص **قبل** ما الـOCR يقراها — يعني مفيش فلترة تلقائية لمحتوى الصورة نفسها. اللي بيحمي الصور: استثناء التطبيقات وكلمات عناوين النوافذ بيمنع التقاط الصورة أصلًا، وإيقاف الالتقاط المؤقت (Pause capture)، والمسح التلقائي بعد ٣ أيام. لو سكرينشوت فيه بيانات حساسة اتخزن بالفعل، امسحه من نافذة السجل (الحذف بيمسح الملف وصف قاعدة البيانات معًا).
+  Image-specific protection limits: automatic content filtering applies to text before storage, but an image (screenshot) is written to disk **before** OCR reads it - there is no automatic content filtering of the image itself. What protects images: app/window exclusions block the capture up front, Pause capture, and the 3-day auto-expiry. If a sensitive screenshot was already stored, delete it from the history window (deletion removes the file and its database row together).
+- البيانات في وضع السكون غير مشفرة (قاعدة SQLite وملفات PNG في مجلد المستخدم): حمايتها تعتمد على صلاحيات حساب المستخدم في نظام التشغيل، زي أي تطبيق محلي.
+  Data at rest is unencrypted (SQLite database and PNG files in the user folder); protection relies on OS account permissions, like any local app.
 
 ## عن المعادلات الرياضية · About math equations
 

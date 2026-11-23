@@ -38,3 +38,33 @@ def test_parse_hotkey_rejects_bad_specs():
     for bad in ("", "v", "ctrl+", "ctrl+banana", "shift+ctrl"):
         with pytest.raises(ValueError):
             parse_hotkey(bad)
+
+
+def test_periodic_sweep_keeps_fresh_orphan_removes_aged(store, images_dir):
+    # Race guard: a capture writes the PNG before its database row exists, so
+    # a periodic sweep must not delete files written moments ago.
+    fresh = images_dir / "fresh00.png"
+    fresh.write_bytes(b"png")
+    aged = images_dir / "aged000.png"
+    aged.write_bytes(b"png")
+
+    removed = sweep_orphan_images(store, images_dir, min_age_seconds=60)
+    assert removed == []
+    assert fresh.exists() and aged.exists()
+
+    # Backdate the aged file beyond the grace window; only it is swept.
+    import os
+    import time
+
+    old = time.time() - 120
+    os.utime(aged, (old, old))
+    removed = sweep_orphan_images(store, images_dir, min_age_seconds=60)
+    assert removed == [aged]
+    assert fresh.exists()  # still within grace, checked again next sweep
+    assert not aged.exists()
+
+    # A fresh file whose row exists is never touched, whatever its age.
+    store.add_image(str(fresh), digest="e" * 64)
+    removed = sweep_orphan_images(store, images_dir, min_age_seconds=0)
+    assert removed == []
+    assert fresh.exists()

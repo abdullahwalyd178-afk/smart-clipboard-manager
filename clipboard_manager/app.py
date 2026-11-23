@@ -23,6 +23,7 @@ from .storage import ClipboardStore
 from .watcher import ClipboardWatcher, PyperclipPILProvider
 
 PURGE_INTERVAL_SECONDS = 3600  # re-apply the retention rule hourly while running
+SWEEP_GRACE_SECONDS = 60  # ignore image files younger than this in periodic orphan sweeps
 
 
 def _remove_image_files(items) -> None:
@@ -39,6 +40,7 @@ def _purge_loop(store: ClipboardStore, config: Config, stop: threading.Event) ->
         try:
             _remove_image_files(store.purge_expired(config.retention_days))
             _remove_image_files(store.enforce_max_items(config.max_items))
+            sweep_orphan_images(store, config.images_dir, min_age_seconds=SWEEP_GRACE_SECONDS)
         except Exception as exc:
             print(f"[smart-clipboard] retention cleanup failed: {exc}", file=sys.stderr)
 
