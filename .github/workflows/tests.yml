@@ -16,14 +16,15 @@ jobs:
           set -o pipefail
           python -m pytest -q -rs 2>&1 | tee pytest-out.txt
       - name: Surface pytest failures as annotations
-        if: failure()
+        if: always()
         shell: bash
         run: |
-          grep -E "^(FAILED|ERROR)" "$RUNNER_TEMP/pytest-out.txt" | head -30 | while IFS= read -r l; do echo "::error::$l"; done
+          { grep -E "^(FAILED|ERROR)" pytest-out.txt | head -30 | while IFS= read -r l; do echo "::error::$l"; done; } || true
           { awk '/^=+ (FAILURES|ERRORS) =+/,0' pytest-out.txt | head -90 | while IFS= read -r l; do echo "::notice::TB $l"; done; } || true
       # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
       # pixels: OS-stack shaping/reorder can only be judged visually.
-      - shell: bash
+      - if: always()
+        shell: bash
         run: |
           set -o pipefail
           python tools/render_probe.py 2>&1 | tee render-probe-out.txt
@@ -33,7 +34,8 @@ jobs:
         run: |
           { grep -E "PROBE_|Error|Traceback" render-probe-out.txt | head -25 | while IFS= read -r l; do echo "::error::$l"; done; } || true
 
-      - shell: bash
+      - if: always()
+        shell: bash
         run: |
           set -o pipefail
           python tools/viewer_probe.py 2>&1 | tee viewer-probe-out.txt
