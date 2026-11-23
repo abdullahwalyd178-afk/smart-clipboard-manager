@@ -361,9 +361,10 @@ class ClipboardWatcher:
                 except Exception:
                     if created_image_file:
                         try:
-                            # Another record may already reference the same digest.
-                            existing = self.store.get_by_hash(digest)
-                            if existing is None or existing.image_path != str(image_path):
+                            # A different history row may reference this exact
+                            # path even when no row has the new content digest.
+                            # Never unlink by digest lookup alone.
+                            if not self.store.image_path_referenced(str(image_path)):
                                 image_path.unlink(missing_ok=True)
                         except Exception:
                             # If the database is unavailable, leave cleanup to the
