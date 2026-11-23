@@ -295,6 +295,11 @@ class HistoryWindow:
         frame = ttk.Frame(win)
         frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         text = tk.Text(frame, wrap=tk.WORD, width=72, height=20)
+        if sys.platform == "win32":
+            # Segoe UI is the font the render probe proved joins and shapes
+            # Arabic on Windows Tk 8.6; the Tk default font leaves letters
+            # disconnected (win_viewer_app pixel evidence).
+            text.configure(font=("Segoe UI", 11))
         scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -317,8 +322,11 @@ class HistoryWindow:
         try:
             import tkinter.font as tkfont
 
-            fname = text.cget("font") or "TkFixedFont"
-            measure = tkfont.nametofont(fname).measure
+            fname = text.cget("font")
+            font_obj = (
+                tkfont.Font(font=fname) if fname else tkfont.nametofont("TkFixedFont")
+            )
+            measure = font_obj.measure
         except tk.TclError:
             pass
         win.update_idletasks()
