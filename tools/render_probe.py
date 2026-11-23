@@ -56,6 +56,9 @@ FIXTURES = {
     "three_logical": _THREE,
     "three_letters_rev": rev_letters(_THREE),
     "three_fully_rev": _THREE[::-1],
+    # word-reversed, letters logical: what the fixed Windows viewer feeds Tk.
+    # Expect readable words with كتاب at the RIGHT = correct RTL paragraph.
+    "three_wordrev": " ".join(_THREE.split(" ")[::-1]),
     # --- brackets / quotes + Latin digits -----------------------------------
     "paren_number": "(تقرير 2026) رقم 12.5 في «القائمة» ثم [نهائي] و(ملاحظة 7)",
     # --- Arabic-Indic digits (AN) between words and next to separators ------
@@ -90,7 +93,7 @@ TEXT_GROUPS = {
     ),
     "text_ordering": (
         "three_logical", "three_letters_rev", "three_fully_rev",
-        "paren_number",
+        "three_wordrev", "paren_number",
     ),
     "text_an": (
         "an_between_words", "an_separators", "an_latin_neighbors",
