@@ -133,9 +133,18 @@ def test_view_full_shows_complete_content(window):
     window.root.update()
     tops = [w for w in window.root.winfo_children() if w.winfo_class() == "Toplevel"]
     assert tops, "viewer window did not open"
-    texts = []
-    for w in tops[0].winfo_children():
-        if w.winfo_class() == "Message":
-            texts.append(w.cget("text"))
-    assert texts and texts[0] == shp(long_text)
+
+    def find_text(w):
+        if w.winfo_class() == "Text":
+            return w
+        for c in w.winfo_children():
+            found = find_text(c)
+            if found is not None:
+                return found
+        return None
+
+    widget = find_text(tops[0])
+    assert widget is not None, "viewer has no Text widget"
+    content = widget.get("1.0", "end-1c")
+    assert content == shp(long_text)  # single line: per-line shaping == whole shaping
     tops[0].destroy()
