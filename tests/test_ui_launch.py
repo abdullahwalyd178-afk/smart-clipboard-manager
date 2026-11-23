@@ -47,6 +47,12 @@ def test_release_only_removes_own_pidfile(tmp_path):
     assert ui_already_running(tmp_path) is False
 
 
+import sys as _sys
+
+import pytest as _pytest
+
+
+@_pytest.mark.skipif(_sys.platform == "win32", reason="zombie PIDs are a POSIX concept; the win32 path uses OpenProcess liveness")
 def test_zombie_pid_counts_as_dead(tmp_path, monkeypatch):
     # A zombie passes os.kill(pid, 0) but must not hold the single-instance
     # guard - otherwise one crashed window blocks every future launch.

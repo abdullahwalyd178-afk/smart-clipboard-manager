@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows-only sm
 
 
 def test_real_clipboard_text_roundtrip():
-    from clipboard_manager.clipboard import PyperclipPILProvider
+    from clipboard_manager.watcher import PyperclipPILProvider
 
     provider = PyperclipPILProvider()
     payload = "smart-clipboard win32 smoke \u0645\u0631\u062d\u0628\u0627"
@@ -34,10 +34,10 @@ def test_active_window_info_queries_real_user32():
 
 
 def test_hotkey_registration_attempt_is_clean():
-    from clipboard_manager.hotkeys import GlobalHotkey
+    from clipboard_manager.hotkeys import HotkeyManager
 
     fired = []
-    hk = GlobalHotkey("ctrl+shift+f9", lambda: fired.append(1))
+    hk = HotkeyManager("ctrl+shift+f9", lambda: fired.append(1))
     started = hk.start()  # True = RegisterHotKey actually succeeded on this Windows
     assert hk.stop() is None  # clean teardown either way
     # No assertion on `started`: session-0 runners may refuse registration;
@@ -59,7 +59,9 @@ def test_sweep_survives_locked_orphan_file(store, images_dir):
     locked.unlink()
 
 
-def test_config_dir_uses_appdata():
-    from clipboard_manager.config import Config
+def test_config_dir_uses_appdata(monkeypatch):
+    from clipboard_manager.config import Config, default_data_dir
 
-    assert "SmartClipboard" in str(Config.config_path())
+    monkeypatch.setenv("APPDATA", r"C:\\Users\\tester\\AppData\\Roaming")
+    assert str(default_data_dir()).startswith(r"C:\\Users\\tester\\AppData\\Roaming")
+    assert "SmartClipboard" in str(Config().config_path)
