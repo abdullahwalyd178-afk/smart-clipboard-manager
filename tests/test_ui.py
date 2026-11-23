@@ -109,6 +109,7 @@ class TestDisplayText:
         assert shaped != "نص عربي"  # pre-shaped + bidi-reordered for Tk
         assert any("ﭐ" <= ch <= "﷿" or "ﹰ" <= ch <= "﻿" for ch in shaped)
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="win32 takes the word-reorder path, no libs needed")
     def test_arabic_missing_libs_falls_back(self, monkeypatch):
         import builtins
 
