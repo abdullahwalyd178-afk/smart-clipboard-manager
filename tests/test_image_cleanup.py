@@ -19,7 +19,13 @@ from clipboard_manager.image_cleanup import (
 def _add_image(store, images_dir: Path):
     image_path = images_dir / "shared.png"
     image_path.write_bytes(b"test image")
-    item, created = store.add_image(\n        str(image_path),\n        digest="shared-image",\n        created_at=(datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds"),\n    )
+    item, created = store.add_image(
+        str(image_path),
+        digest="shared-image",
+        created_at=(
+            datetime.now(timezone.utc) - timedelta(days=2)
+        ).isoformat(timespec="seconds"),
+    )
     assert created
     return item, image_path
 
