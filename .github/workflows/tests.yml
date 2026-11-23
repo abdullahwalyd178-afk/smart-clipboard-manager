@@ -25,6 +25,8 @@ jobs:
       # pixels: OS-stack shaping/reorder can only be judged visually.
       - if: always()
         shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           set -o pipefail
           python tools/render_probe.py 2>&1 | tee render-probe-out.txt
@@ -36,6 +38,8 @@ jobs:
 
       - if: always()
         shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           set -o pipefail
           python tools/viewer_probe.py 2>&1 | tee viewer-probe-out.txt
