@@ -64,6 +64,21 @@ FIXTURES = {
     "an_latin_neighbors": "الملف report2026 رقم ٧ من ١٢ نسخة v2 بتاريخ ٢٠٢٦/١١/٢٣",
 }
 
+
+# --- shaped-by-our-pipeline: the exact output the Linux viewer produces ----
+# three_* fixtures proved the OS reorders NOTHING, so if these visual-order
+# presentation forms render correctly on Windows, the SAME single backend
+# fixes the Windows viewer. Skipped cleanly when shaping deps are absent.
+try:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from clipboard_manager.text_shaping import shape_with_map as _swm
+    for _key in ("short_arabic", "long_arabic", "mixed", "paren_number"):
+        _disp, _ = _swm(FIXTURES[_key])
+        if _disp != FIXTURES[_key]:
+            FIXTURES["shaped_" + _key] = _disp
+except Exception as _exc:  # missing arabic-reshaper / python-bidi: skip, not a render failure
+    print(f"shaped fixtures unavailable: {_exc}", flush=True)
+
 TEXT_GROUPS = {
     "text_core": (
         "short_arabic", "long_arabic", "mixed", "punct_edges",
@@ -79,6 +94,11 @@ TEXT_GROUPS = {
     ),
     "text_wrap": ("long_mixed",),
 }
+if "shaped_short_arabic" in FIXTURES:
+    TEXT_GROUPS["text_shaped"] = (
+        "shaped_short_arabic", "shaped_long_arabic", "shaped_mixed", "shaped_paren_number",
+    )
+
 ENTRY_KEYS = ("mixed", "paren_number", "an_between_words")
 TREE_KEYS = ("short_arabic", "mixed", "lam_alef", "three_logical", "paren_number", "an_separators")
 
