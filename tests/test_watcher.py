@@ -576,11 +576,11 @@ def test_item_limit_waits_for_image_file_lock_before_deleting_evicted_image(
         [
             sys.executable,
             "-c",
-            "import sys, time\\n"
-            "from clipboard_manager.file_lock import image_files_lock\\n"
-            "with image_files_lock(sys.argv[1]):\\n"
-            "    print('LOCKED', flush=True)\\n"
-            "    time.sleep(30)\\n",
+            "import sys, time\n"
+            "from clipboard_manager.file_lock import image_files_lock\n"
+            "with image_files_lock(sys.argv[1]):\n"
+            "    print('LOCKED', flush=True)\n"
+            "    time.sleep(30)\n",
             str(images_dir),
         ],
         stdout=subprocess.PIPE,
