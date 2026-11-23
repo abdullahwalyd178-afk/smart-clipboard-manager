@@ -39,15 +39,16 @@ FILTERS = ("All", "Text", "Images", "Favorites")
 def _display_text(text: str) -> str:
     """Prepare text for Tk display.
 
-    Tk does no Arabic shaping or bidi layout: raw Arabic strings render
-    left-to-right with disconnected glyphs. When the optional
-    ``arabic_reshaper`` + ``python-bidi`` packages are installed, Arabic text
-    is pre-shaped and visually reordered so it displays correctly on every
-    platform. Without them the text is returned unchanged (still usable, just
-    not shaped).
+    Same platform split as the viewer: Windows Tk 8.6 reverses the letters
+    inside each space-delimited word but never the word order, so it takes
+    word-reordered LOGICAL letters. Other platforms take shaped presentation
+    forms via ``arabic_reshaper`` + ``python-bidi`` when installed. Without
+    the libraries the text is returned unchanged (still usable, unshaped).
     """
     if not any("\u0600" <= ch <= "\u06FF" for ch in text):
         return text
+    if sys.platform == "win32":
+        return reorder_words_with_map(text)[0]
     try:
         import arabic_reshaper  # type: ignore
         from bidi.algorithm import get_display  # type: ignore
