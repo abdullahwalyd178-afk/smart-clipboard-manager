@@ -180,6 +180,14 @@ class ClipboardStore:
             tags.update(t.strip() for t in blob.split(",") if t.strip())
         return sorted(tags, key=str.lower)
 
+    def image_path_referenced(self, image_path: str) -> bool:
+        """Return whether any surviving history row still references this path."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM items WHERE image_path = ? LIMIT 1", (image_path,)
+            ).fetchone()
+        return row is not None
+
     def all_image_paths(self) -> set[str]:
         """Image file paths referenced by any stored item (orphan detection)."""
         with self._lock:

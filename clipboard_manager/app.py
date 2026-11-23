@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from .config import Config
+from .image_cleanup import clear_unpinned, purge_and_enforce
 from .maintenance import sweep_orphan_images
 from .ocr import TrackingEngine, create_engine
 from .sensitive import SensitiveFilterProvider
@@ -25,20 +26,12 @@ from .watcher import ClipboardWatcher, PyperclipPILProvider
 PURGE_INTERVAL_SECONDS = 3600  # re-apply the retention rule hourly while running
 
 
-def _remove_image_files(items) -> None:
-    for item in items:
-        if item.image_path:
-            try:
-                Path(item.image_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-
-
 def _purge_loop(store: ClipboardStore, config: Config, stop: threading.Event) -> None:
     while not stop.wait(PURGE_INTERVAL_SECONDS):
         try:
-            _remove_image_files(store.purge_expired(config.retention_days))
-            _remove_image_files(store.enforce_max_items(config.max_items))
+            purge_and_enforce(
+                store, config.images_dir, config.retention_days, config.max_items
+            )
         except Exception as exc:
             print(f"[smart-clipboard] retention cleanup failed: {exc}", file=sys.stderr)
 
@@ -59,8 +52,9 @@ def cmd_run(args) -> int:
     # Apply the retention rule on startup, so old items disappear even if the
     # app was not running when they aged out. Also drop image files that no
     # database row references anymore (interrupted captures, old deletes).
-    _remove_image_files(store.purge_expired(config.retention_days))
-    _remove_image_files(store.enforce_max_items(config.max_items))
+    purge_and_enforce(
+        store, config.images_dir, config.retention_days, config.max_items
+    )
     sweep_orphan_images(store, config.images_dir)
 
     engine = _build_engine(config)
@@ -80,6 +74,7 @@ def cmd_run(args) -> int:
         ocr_engine=engine,
         poll_interval=config.poll_interval_seconds,
         copy_ocr_result_to_clipboard=config.copy_ocr_result_to_clipboard,
+        max_items=config.max_items,
     )
 
     stop = threading.Event()
@@ -156,8 +151,7 @@ def cmd_history(args) -> int:
 def cmd_clear(args) -> int:
     config = Config.load()
     with ClipboardStore(config.db_path) as store:
-        removed = store.clear_unpinned()
-    _remove_image_files(removed)
+        removed = clear_unpinned(store, config.images_dir)
     print(f"removed {len(removed)} unpinned item(s); pinned items kept")
     return 0
 

@@ -111,19 +111,45 @@ def active_window_info() -> tuple[str, str] | None:
     if sys.platform != "win32":
         return None
     try:
+        from ctypes import wintypes
+
         user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
         hwnd = user32.GetForegroundWindow()
         if not hwnd:
             return None
         length = user32.GetWindowTextLengthW(hwnd)
         title_buf = ctypes.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, title_buf, length + 1)
-        pid = ctypes.c_ulong()
+        pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
         process = ""
         psapi = ctypes.windll.psapi
         kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(0x0400 | 0x0010, False, pid.value)  # QUERY_INFORMATION|VM_READ
+        # ctypes defaults an undeclared Win32 return type to c_int, which can
+        # truncate HANDLE values in a 64-bit Python process.
+        kernel32.OpenProcess.argtypes = [
+            wintypes.DWORD, wintypes.BOOL, wintypes.DWORD
+        ]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        psapi.GetModuleBaseNameW.argtypes = [
+            wintypes.HANDLE, wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD
+        ]
+        psapi.GetModuleBaseNameW.restype = wintypes.DWORD
+
+        handle = kernel32.OpenProcess(0x0400 | 0x0010, False, pid.value)
         if handle:
             try:
                 name_buf = ctypes.create_unicode_buffer(260)

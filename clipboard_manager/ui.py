@@ -17,6 +17,7 @@ import logging
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+from .image_cleanup import delete_item
 from .models import IMAGE, TEXT
 from .storage import ClipboardStore
 from .watcher import ClipboardProvider
@@ -213,14 +214,12 @@ class HistoryWindow:
         item_id = self._selected_id()
         if item_id is None:
             return
-        removed = self.store.delete(item_id)
-        if removed and removed.image_path:
-            from pathlib import Path
-
-            try:
-                Path(removed.image_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        images_dir = (
+            self.config.images_dir
+            if self.config is not None
+            else self.store.db_path.parent / "images"
+        )
+        delete_item(self.store, item_id, images_dir)
         self.refresh()
 
     def close(self) -> None:

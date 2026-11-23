@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from .file_lock import image_files_lock
 from .models import ClipboardItem
 from .storage import ClipboardStore
 
@@ -80,6 +81,7 @@ class ClipboardWatcher:
         poll_interval: float = 0.5,
         copy_ocr_result_to_clipboard: bool = True,
         on_new_item: Callable[[ClipboardItem], None] | None = None,
+        max_items: int = 0,
     ):
         self.store = store
         self.provider = provider
@@ -88,7 +90,9 @@ class ClipboardWatcher:
         self.poll_interval = poll_interval
         self.copy_ocr_result_to_clipboard = copy_ocr_result_to_clipboard
         self.on_new_item = on_new_item
+        self.max_items = max_items
 
+        self._hash_lock = threading.Lock()
         self._last_hash: str | None = None
         self._paused = False
         self._stop = threading.Event()
@@ -146,13 +150,30 @@ class ClipboardWatcher:
 
     def _capture_text(self, text: str) -> ClipboardItem | None:
         digest = ClipboardItem.hash_text(text)
-        if digest == self._last_hash:
+        with self._hash_lock:
+            if digest == self._last_hash:
+                return None
+            # Commit the deduplication hash only after SQLite confirms the write.
+            item, is_new = self.store.add_text(text)
+            self._last_hash = digest
+        if not is_new:
             return None
-        self._last_hash = digest
-        item, is_new = self.store.add_text(text)
-        if is_new and self.on_new_item:
+        self._apply_item_limit()
+        if self.on_new_item:
             self.on_new_item(item)
-        return item if is_new else None
+        return item
+
+    def _apply_item_limit(self) -> None:
+        if self.max_items <= 0:
+            return
+        with image_files_lock(self.images_dir):
+            removed = self.store.enforce_max_items(self.max_items)
+            for item in removed:
+                if item.image_path and not self.store.image_path_referenced(item.image_path):
+                    try:
+                        Path(item.image_path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
 
     def _current_clipboard_hash(self) -> str | None:
         """Hash of whatever is on the clipboard right now (text or image)."""
@@ -169,41 +190,64 @@ class ClipboardWatcher:
 
     def _capture_image(self, png: bytes) -> ClipboardItem | None:
         digest = ClipboardItem.hash_bytes(png)
-        if digest == self._last_hash:
-            return None
-        self._last_hash = digest
+        # Coordinate PNG creation + row insertion with every cleanup/sweep path.
+        with image_files_lock(self.images_dir):
+            with self._hash_lock:
+                if digest == self._last_hash:
+                    return None
 
-        self.images_dir.mkdir(parents=True, exist_ok=True)
-        image_path = self.images_dir / f"{digest[:16]}.png"
-        if not image_path.exists():
-            image_path.write_bytes(png)
+                self.images_dir.mkdir(parents=True, exist_ok=True)
+                image_path = self.images_dir / f"{digest[:16]}.png"
+                created_image_file = False
+                if not image_path.exists():
+                    temporary_path = image_path.with_suffix(".png.tmp")
+                    try:
+                        temporary_path.write_bytes(png)
+                        temporary_path.replace(image_path)
+                        created_image_file = True
+                    finally:
+                        temporary_path.unlink(missing_ok=True)
 
-        item, is_new = self.store.add_image(str(image_path), digest)
+                try:
+                    item, is_new = self.store.add_image(str(image_path), digest)
+                except Exception:
+                    if created_image_file:
+                        try:
+                            if not self.store.image_path_referenced(str(image_path)):
+                                image_path.unlink(missing_ok=True)
+                        except Exception:
+                            # Preserve the file if the database cannot establish
+                            # whether another row still references it.
+                            pass
+                    raise
+                self._last_hash = digest
+
         if not is_new:
             return None
 
         if self.ocr_engine is not None:
+            ocr_failed = False
             try:
                 ocr_text = self.ocr_engine.extract_text(str(image_path))
             except Exception:
                 ocr_text = ""
-            if ocr_text:
+                ocr_failed = True
+            # Empty output is a completed attempt, not an absent/pending result.
+            # Do not overwrite TrackingEngine's explicit failed status.
+            if not ocr_failed:
                 self.store.set_ocr_text(item.id, ocr_text)
                 item.ocr_text = ocr_text
-                if self.copy_ocr_result_to_clipboard:
-                    # OCR can take seconds; the user may have copied something
-                    # else meanwhile. Never clobber a newer user copy - only
-                    # place the result if the clipboard still holds the image
-                    # we just captured.
-                    if self._current_clipboard_hash() == digest:
-                        try:
-                            self.provider.set_text(ocr_text)
-                            # Don't re-capture the OCR text we just placed as a
-                            # brand-new clip; it already lives on the image item.
+            if ocr_text and self.copy_ocr_result_to_clipboard:
+                # OCR can take seconds; never overwrite a newer user copy.
+                if self._current_clipboard_hash() == digest:
+                    try:
+                        self.provider.set_text(ocr_text)
+                        with self._hash_lock:
                             self._last_hash = ClipboardItem.hash_text(ocr_text)
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
+        self._apply_item_limit()
         if self.on_new_item:
             self.on_new_item(item)
         return item

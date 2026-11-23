@@ -218,10 +218,11 @@ class TrackingEngine(OCREngine):
             if item is not None:
                 self.store.mark_ocr_failed(item.id)
             raise
-        if item is not None and not result.strip():
-            # Empty output is not a failure, but it is not "done with text"
-            # either; keep the status honest for the retry UI.
-            self.store.set_ocr_status(item.id, None)
+        if item is not None:
+            # An empty OCR result is still a completed attempt. Persist it via
+            # set_ocr_text so the status becomes "done" and the UI does not
+            # mistake a successful no-text result for pending work.
+            self.store.set_ocr_text(item.id, result)
         return result
 
 

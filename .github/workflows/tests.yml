@@ -2,7 +2,7 @@ name: tests
 on: [push, pull_request]
 jobs:
   pytest:
-    runs-on: windows-latest
+    runs-on: windows-2022  # pinned: windows-latest image has broken Tcl on some runner images
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
