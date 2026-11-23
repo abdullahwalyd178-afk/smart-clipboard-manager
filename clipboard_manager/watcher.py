@@ -191,7 +191,15 @@ class ClipboardWatcher:
             with self._lifecycle_lock:
                 if self._ocr_thread is ocr_thread:
                     self._ocr_thread = None
-                self._ocr_shutdown_requested = False
+                    self._ocr_shutdown_requested = False
+                elif self._ocr_thread is not None and self._ocr_thread.is_alive():
+                    # A concurrent restart handed off to a replacement worker.
+                    # Do not report a clean shutdown while that worker uses SQLite.
+                    logger.warning("OCR worker restarted while shutdown was waiting")
+                    return False
+                else:
+                    self._ocr_thread = None
+                    self._ocr_shutdown_requested = False
         return True
 
     def _run(self) -> None:

@@ -492,3 +492,44 @@ def test_failed_image_insert_cleans_only_the_newly_created_file(store, images_di
     with pytest.raises(RuntimeError, match="database write failed"):
         watcher.poll_once()
     assert image_path.read_bytes() == b"pre-existing image"
+
+
+def test_stop_does_not_report_success_if_restart_replaces_worker_during_join(store, images_dir):
+    class BlockingOCR(FakeOCR):
+        def __init__(self):
+            super().__init__("done")
+            self.entered = threading.Event()
+            self.release = threading.Event()
+            self.calls = 0
+
+        def extract_text(self, path):
+            self.calls += 1
+            if self.calls == 1:
+                self.entered.set()
+                self.release.wait(timeout=3)
+            return f"result {self.calls}"
+
+    provider = FakeProvider()
+    ocr = BlockingOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
+    provider.image = PNG_A
+    first = watcher.poll_once()
+    assert first is not None and ocr.entered.wait(timeout=1)
+
+    stop_result = []
+    stopper = threading.Thread(target=lambda: stop_result.append(watcher.stop(timeout=2)))
+    stopper.start()
+    assert wait_until(lambda: watcher._ocr_shutdown_requested, timeout=1)
+
+    watcher.start()
+    time.sleep(0.05)
+    provider.image = PNG_B
+    second = watcher.poll_once()
+    assert second is not None and second.id != first.id
+
+    ocr.release.set()
+    stopper.join(timeout=2)
+    assert not stopper.is_alive()
+    assert stop_result == [False]
+    assert wait_until(lambda: store.get(second.id).ocr_text == "result 2", timeout=2)
+    assert watcher.stop(timeout=2) is True
