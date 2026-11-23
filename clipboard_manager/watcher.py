@@ -227,6 +227,12 @@ class ClipboardWatcher:
                             )
                             self._ocr_thread = replacement
                             replacement.start()
+                        elif self._ocr_thread is threading.current_thread():
+                            # Publish the worker as stopped before returning.
+                            # A concurrent start can then safely create a new
+                            # worker instead of enqueueing behind a dead sentinel.
+                            self._ocr_thread = None
+                            self._ocr_shutdown_requested = False
                     return
                 item_id, image_path, digest = task
                 self._process_ocr(item_id, image_path, digest)
