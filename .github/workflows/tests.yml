@@ -24,7 +24,9 @@ jobs:
       - name: Publish render captures to ci-render branch
         if: always()
         shell: bash
+        continue-on-error: true
         run: |
+          set +e
           git config user.email "ci-render@localhost"
           git config user.name "ci-render"
           git fetch origin ci-render || true
