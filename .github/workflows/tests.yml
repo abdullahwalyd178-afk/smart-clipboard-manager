@@ -21,7 +21,8 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for f in text_1024; do
+          for f in text_ordering_1024 text_core_640; do
+            [ -f render-out/$f.png ] || { echo "skip $f (missing)"; continue; }
             base64 -w0 render-out/$f.png > "$RUNNER_TEMP/b64.txt"
             N=$(wc -c < "$RUNNER_TEMP/b64.txt")
             CH=$(( (N + 3899) / 3900 ))
