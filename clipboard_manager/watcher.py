@@ -279,7 +279,10 @@ class ClipboardWatcher:
         with image_files_lock(self.images_dir):
             removed = self.store.enforce_max_items(self.max_items)
             for item in removed:
-                if item.image_path and not self.store.image_path_referenced(item.image_path):
+                if (
+                    item.image_path
+                    and not self.store.image_path_referenced(item.image_path)
+                ):
                     try:
                         Path(item.image_path).unlink(missing_ok=True)
                     except OSError:
