@@ -553,3 +553,58 @@ def test_empty_ocr_result_is_persisted_as_completed(store, images_dir):
     assert saved is not None
     assert saved.ocr_text == ""
     assert provider.set_calls == []
+
+
+
+def test_item_limit_waits_for_image_file_lock_before_deleting_evicted_image(
+    store, images_dir
+):
+    """Eviction must not unlink a PNG while another process owns the image lock."""
+    import subprocess
+    import sys
+
+    image_path = images_dir / "evicted.png"
+    image_path.write_bytes(b"image bytes")
+    old_image, _ = store.add_image(str(image_path), digest="old-image")
+    store.add_text("newer text")
+
+    watcher = ClipboardWatcher(
+        store, FakeProvider(), images_dir, max_items=1
+    )
+
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys, time\\n"
+            "from clipboard_manager.file_lock import image_files_lock\\n"
+            "with image_files_lock(sys.argv[1]):\\n"
+            "    print('LOCKED', flush=True)\\n"
+            "    time.sleep(30)\\n",
+            str(images_dir),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        # Empty output means the holder failed before acquiring the lock.
+        assert holder.stdout.readline().strip() == "LOCKED"
+
+        worker = threading.Thread(target=watcher._apply_item_limit, daemon=True)
+        worker.start()
+        time.sleep(0.2)
+
+        # Without the shared lock, _apply_item_limit would already have
+        # deleted both the DB row and its PNG while the other process held it.
+        assert worker.is_alive()
+        assert store.get(old_image.id) is not None
+        assert image_path.exists()
+    finally:
+        holder.terminate()
+        holder.wait(timeout=5)
+
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert store.get(old_image.id) is None
+    assert not image_path.exists()
