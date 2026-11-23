@@ -17,6 +17,14 @@ jobs:
         if: always()
         shell: bash
         run: python -c "import json; m=json.load(open('render-out/metrics.json')); print('::notice::METRICS '+json.dumps(m,separators=(',',':')))"
+      - name: Emit text captures as base64 annotations
+        if: always()
+        shell: bash
+        run: |
+          for f in text_640 text_1024; do
+            B=$(base64 -w0 render-out/$f.png)
+            echo "::notice::PNG_B64_$f $B"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
