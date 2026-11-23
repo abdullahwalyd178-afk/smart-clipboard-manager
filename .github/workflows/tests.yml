@@ -56,7 +56,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for f in text_ordering_640 viewer_app; do
+          for f in text_ordering_640 viewer_app viewer_app_align2; do
             [ -f render-out/$f.png ] || { echo "skip $f (missing)"; continue; }
             base64 -w0 render-out/$f.png > "$RUNNER_TEMP/b64.txt"
             N=$(wc -c < "$RUNNER_TEMP/b64.txt")
