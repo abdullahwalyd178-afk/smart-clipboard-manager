@@ -11,15 +11,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 import threading
 import time
 from pathlib import Path
 
 from .config import Config
 from .ocr import create_engine
-from .storage import ClipboardStore
 from .image_cleanup import clear_unpinned, purge_and_enforce
+from .storage import ClipboardStore
 from .watcher import ClipboardWatcher, PyperclipPILProvider
 
 logger = logging.getLogger(__name__)
