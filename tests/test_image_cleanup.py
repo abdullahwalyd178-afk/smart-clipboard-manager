@@ -4,7 +4,6 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -29,8 +28,6 @@ def test_image_cleanup_waits_for_capture_lock_on_all_platforms(
     store, images_dir, operation
 ):
     """A cleanup process must wait while capture owns the shared image lock."""
-    from clipboard_manager.file_lock import image_files_lock
-
     item, image_path = _add_image(store, images_dir)
 
     def cleanup():
@@ -46,11 +43,11 @@ def test_image_cleanup_waits_for_capture_lock_on_all_platforms(
         [
             sys.executable,
             "-c",
-            "import sys, time\\n"
-            "from clipboard_manager.file_lock import image_files_lock\\n"
-            "with image_files_lock(sys.argv[1]):\\n"
-            "    print('LOCKED', flush=True)\\n"
-            "    time.sleep(30)\\n",
+            "import sys, time\n"
+            "from clipboard_manager.file_lock import image_files_lock\n"
+            "with image_files_lock(sys.argv[1]):\n"
+            "    print('LOCKED', flush=True)\n"
+            "    time.sleep(30)\n",
             str(images_dir),
         ],
         stdout=subprocess.PIPE,
