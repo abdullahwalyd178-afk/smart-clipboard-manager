@@ -91,6 +91,12 @@ def main() -> int:
         return 1
     top = tops[0]
     richedit = getattr(win, "_viewer_richedit", None)
+    if richedit is not None:
+        print(
+            "RICHEDIT_PARAGRAPH_FORMAT_READBACK "
+            + json.dumps(richedit.paragraph_format_results, ensure_ascii=False),
+            flush=True,
+        )
     if sys.platform == "win32" and richedit is None:
         err = getattr(win, "_viewer_backend_error", None) or "unknown"
         print(f"PROBE_FAILED: win32 viewer did not select the Rich Edit backend: {err}", flush=True)
