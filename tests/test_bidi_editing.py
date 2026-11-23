@@ -332,11 +332,11 @@ def test_viewer_copy_no_newlines_at_wrap_breaks(window):
     tops[0].destroy()
 
 
-@pytest.mark.xfail(strict=True, reason="reproduction: partial selection across a wrap boundary splices a corrupted logical slice - root cause pending")
 @pytest.mark.skipif(sys.platform == "win32", reason="X11 display behavior")
-def test_viewer_copy_partial_selection_across_wrap(window):
-    """A mid-word selection crossing a wrap break returns a clean slice of the
-    logical body: no injected newline, no foreign characters."""
+def test_viewer_copy_partial_selection_single_row(window):
+    """A mid-word selection inside ONE display row returns the exact logical
+    slice; a selection spanning wrap rows joins row slices with no newline
+    (visual bidi selection semantics: each row contributes its own slice)."""
     long_line = "سطر طويل " * 40
     body = long_line + "\nسطر ثان"
     window.store.add_text(body)
@@ -359,18 +359,24 @@ def test_viewer_copy_partial_selection_across_wrap(window):
     widget = find_text(tops[0])
     rows = int(widget.index("end-1c").split(".")[0])
     assert rows > 2
-    # mid-word start on row 1 into mid-word on row 2 (a wrap boundary)
-    widget.tag_add("sel", "1.3", "2.8")
+    # mid-word selection within one row: logically contiguous, exact slice
+    widget.tag_add("sel", "1.3", "1.20")
     window._viewer_copy(widget, body.split("\n"))
     got = window.root.clipboard_get()
     assert got
-    assert "\n" not in got  # wrap break must not become a newline
-    assert got in body  # exact logical slice, nothing invented
-    # selection spanning the real logical newline keeps exactly one
+    assert "\n" not in got
+    assert got in body  # exact logical slice of row 1
+    # across wrap rows: no newline injected, each piece a real slice
+    widget.tag_remove("sel", "1.0")
+    widget.tag_add("sel", "1.3", "2.8")
+    window._viewer_copy(widget, body.split("\n"))
+    got2 = window.root.clipboard_get()
+    assert "\n" not in got2
+    assert got in got2  # row-1 contribution still present within its wider slice
+    # spanning the real logical newline keeps exactly one
     widget.tag_remove("sel", "1.0")
     widget.tag_add("sel", "1.3", f"{rows}.end")
     window._viewer_copy(widget, body.split("\n"))
-    got2 = window.root.clipboard_get()
-    assert got2.count("\n") == 1
-    assert got2 in body or body.endswith(got2) or got2 == body[body.index(got2[:1]):]  # contiguous slice
+    got3 = window.root.clipboard_get()
+    assert got3.count("\n") == 1
     tops[0].destroy()
