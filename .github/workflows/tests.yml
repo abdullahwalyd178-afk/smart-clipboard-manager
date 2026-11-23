@@ -17,5 +17,20 @@ jobs:
         if: always()
         with:
           name: windows-render
-          path: ci-render/out/
+          path: render-out/
           if-no-files-found: warn
+      # Also publish captures to the ci-render branch so they are fetchable
+      # without an API token (public raw URLs). Tolerated if the token is read-only.
+      - name: Publish render captures to ci-render branch
+        if: always()
+        run: |
+          git config user.email "ci-render@localhost"
+          git config user.name "ci-render"
+          git fetch origin ci-render || true
+          git checkout -B ci-render $(git rev-parse origin/ci-render 2>/dev/null || git rev-parse HEAD)
+          mkdir -p captures/$GITHUB_RUN_ID
+          cp -r render-out/* captures/$GITHUB_RUN_ID/ 2>/dev/null || echo "no captures"
+          git add captures
+          git commit -m "render captures for run $GITHUB_RUN_ID" || echo "nothing to commit"
+          git push origin ci-render || echo "PUBLISH_SKIPPED (token read-only?)"
+          git checkout -
