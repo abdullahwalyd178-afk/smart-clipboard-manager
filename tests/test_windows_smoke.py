@@ -62,6 +62,6 @@ def test_sweep_survives_locked_orphan_file(store, images_dir):
 def test_config_dir_uses_appdata(monkeypatch):
     from clipboard_manager.config import Config, default_data_dir
 
-    monkeypatch.setenv("APPDATA", r"C:\\Users\\tester\\AppData\\Roaming")
-    assert str(default_data_dir()).startswith(r"C:\\Users\\tester\\AppData\\Roaming")
+    monkeypatch.setenv("APPDATA", r"C:\Users\tester\AppData\Roaming")
+    assert str(default_data_dir()).startswith(r"C:\Users\tester\AppData\Roaming")
     assert "SmartClipboard" in str(Config().config_path)
