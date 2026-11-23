@@ -234,7 +234,7 @@ def _reverse_words_keep_spaces(idxs: list[int], tokens: list[str]) -> list[int]:
     # interleave by position class.
     return list(reversed(idxs))
 
-def wrap_logical_line(line: str, measure, max_px: int) -> list[str]:
+def wrap_logical_line(line: str, measure, max_px: int, transform=None) -> list[str]:
     """Greedy word-wrap of a LOGICAL line by measured pixel width.
 
     measure maps a string to its pixel width (e.g. tkinter.font.Font.measure).
@@ -243,14 +243,23 @@ def wrap_logical_line(line: str, measure, max_px: int) -> list[str]:
     max_px gets its own overflowing row; the widget's wrap=WORD is the visual
     safety net and per-row d2l maps still line up because Tk soft-wraps do
     not change logical line numbering.
+
+    transform, when given, is the per-row display transform the widget will
+    render (e.g. reorder_words_with_map / shape_with_map). Widths are then
+    measured on the TRANSFORMED text: Tk soft-wrapping a row would shift
+    every per-row display->logical copy map after it, so a row must fit as
+    RENDERED, not as measured on its logical form.
     """
-    if not line or measure is None or max_px <= 0 or measure(line) <= max_px:
+    def width(s: str) -> int:
+        return measure(transform(s)[0]) if transform is not None else measure(s)
+
+    if not line or measure is None or max_px <= 0 or width(line) <= max_px:
         return [line]
     tokens = _WORD_TOKEN_RE.findall(line)
     rows: list[str] = []
     cur = ""
     for tok in tokens:
-        if not tok.isspace() and cur.strip() and measure(cur + tok) > max_px:
+        if not tok.isspace() and cur.strip() and width(cur + tok) > max_px:
             rows.append(cur)
             cur = tok
         else:
