@@ -14,10 +14,14 @@ A local, Windows-first system tray app that keeps a history of everything you co
   Text and image clips, with automatic deduplication.
 - **OCR تلقائي للصور** — أول ما تعمل Screenshot، النص بيتستخرج وبيتنسخ جاهز للـ Paste. الالتقاط بيتم بأدوات ويندوز العادية (Win+Shift+S لجزء من الشاشة، أو Print Screen) — الصورة بتوصل للحافظة والأداة بتستخرج النص منها تلقائيًا. مفيش زرار التقاط مدمج في الأداة.
   Screenshots are OCR'd automatically and the text is placed on the clipboard, ready to paste. Capture with the normal Windows tools (Win+Shift+S for a region, or Print Screen) - the image lands on the clipboard and the app OCRs it. There is no built-in capture hotkey; the OS does the capturing.
+- **OCR في الخلفية** — تحليل الصور بيتم في عامل مستقل؛ بطء استخراج النص مش بيوقف مراقبة الحافظة أو تسجيل النسخ الجديدة.
+  OCR runs on a dedicated worker, so slow image recognition does not block clipboard polling or capture of newer clips.
 - **يفضل بعد إعادة التشغيل** — السجل محفوظ في قاعدة بيانات، مش بيضيع لو قفلت الجهاز.
   History survives restarts (SQLite persistence).
-- **تنظيف تلقائي بعد ٣ أيام** — أي عنصر عدّى ٣ أيام بيتحذف لوحده.
-  Unpinned items older than 3 days are deleted automatically (on startup and every hour while running).
+- **تنظيف تلقائي بعد ٣ أيام** — أي عنصر غير مثبت عدّى ٣ أيام بيتحذف عند التشغيل وكل ساعة أثناء العمل.
+  Unpinned items older than 3 days are deleted on startup and every hour while running.
+- **حد أقصى للسجل** — آخر ٥٠٠ عنصر غير مثبت افتراضيًا؛ الحد بيتطبق مع كل عملية نسخ جديدة، والعناصر المثبتة بتفضل محفوظة بالإضافة إليه.
+  The 500-item default cap is enforced on every new capture; pinned items are retained in addition.
 - **Pin 📌** — العناصر المثبتة **مبتتحذفش أبدًا** مع التنظيف.
   Pinned items never expire.
 - **تحكم من الـ Tray** — إيقاف مؤقت للتسجيل (Pause)، استرجاع أي عنصر، Pin/Unpin، حذف، أو مسح كل العناصر غير المثبتة.
@@ -27,8 +31,8 @@ A local, Windows-first system tray app that keeps a history of everything you co
 
 - السجل محلي بالكامل؛ الكود ده مفيهوش أي شبكة أو Telemetry.
   The history is fully local; this app has no networking or telemetry of any kind.
-- انتبه: أي حاجة بتعملها Copy — بما فيها كلمات السر — بتتسجل لمدة ٣ أيام. لو بتنسخ حاجة حساسة كتير، استخدم **Pause capture** من قائمة الـ Tray قبلها، ومتعملش Pin لحاجة حساسة (المثبّت مش بيتحذف أبدًا).
-  Anything you copy — including passwords — is recorded for up to 3 days. Use **Pause capture** before copying secrets, and don't pin sensitive items (pinned items never expire).
+- انتبه: أي حاجة بتعملها Copy — بما فيها كلمات السر والبيانات الشخصية — ممكن تتخزن محليًا. استخدم **Pause capture** قبل نسخ البيانات الحساسة، ومتعملش Pin لأي سر. قاعدة SQLite غير مشفرة؛ متستخدمش البرنامج كمدير كلمات مرور.
+  Anything you copy — including passwords and personal data — may be stored locally. Pause capture before copying sensitive data and never pin secrets. The SQLite history is not encrypted; do not use this app as a password manager.
 
 ## عن المعادلات الرياضية · About math equations
 
@@ -70,7 +74,7 @@ python -m clipboard_manager clear      # مسح كل العناصر غير ال�
 | `ocr_engine` | `"tesseract"` | `tesseract` / `easyocr` / `pix2tex` |
 | `ocr_language` | `"eng"` | لغات Tesseract |
 | `copy_ocr_result_to_clipboard` | `true` | نسخ نتيجة الـ OCR تلقائيًا جاهزة للـ Paste |
-| `max_items` | `500` | حد أقصى للعناصر (الأقدم غير المثبّت بيتحذف أولًا) |
+| `max_items` | `500` | حد أقصى للعناصر غير المثبتة (الأقدم يُحذف أولًا؛ `0` = بلا حد) |
 
 ## الاختبارات · Tests
 
@@ -79,9 +83,9 @@ pip install pytest
 pytest
 ```
 
-الاختبارات بتغطي: التخزين ومنع التكرار، الـ Pin وقاعدة الـ ٣ أيام، الاستمرار بعد إعادة التشغيل، مراقبة الحافظة، إن نتيجة الـ OCR مبتتسجلش كعنصر جديد ومبتكتبش فوق نص نسخته بعدها، واختبار OCR حقيقي على صورة مولّدة (بيتخطى تلقائيًا لو Tesseract مش متثبت).
+الاختبارات بتغطي: التخزين ومنع التكرار، الـ Pin وقاعدة الـ ٣ أيام، الاستمرار بعد إعادة التشغيل، مراقبة الحافظة، حد العناصر وتنظيف الصور، التحقق من الإعدادات، وإيقاف آمن أثناء عمليات OCR، واختبار OCR حقيقي على صورة مولّدة (بيتخطى تلقائيًا لو Tesseract مش متثبت).
 
-Tests cover: storage/dedup, pin + 3-day retention, restart persistence, clipboard watching, OCR auto-copy safety (no self-recapture, never overwrites a newer user copy), and a real Tesseract OCR run on a generated image (auto-skipped if Tesseract isn't installed).
+Tests cover: storage/dedup, pin + retention, restart persistence, clipboard watching, immediate item caps and image cleanup, config validation, non-blocking OCR, safe shutdown during a blocked capture, OCR auto-copy safety, and a real Tesseract OCR run on a generated image (auto-skipped if Tesseract isn't installed).
 
 ## التقنيات · Stack
 

@@ -96,6 +96,14 @@ class ClipboardStore:
         with self._lock:
             return self._conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
 
+    def image_path_referenced(self, image_path: str) -> bool:
+        """Return whether any surviving history row still references an image."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM items WHERE image_path = ? LIMIT 1", (image_path,)
+            ).fetchone()
+        return row is not None
+
     # -- writing -----------------------------------------------------------
 
     def _insert(self, item: ClipboardItem) -> int:

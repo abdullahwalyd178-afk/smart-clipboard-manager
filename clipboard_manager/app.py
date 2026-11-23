@@ -10,42 +10,37 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
+import logging
 import threading
 import time
 from pathlib import Path
 
 from .config import Config
 from .ocr import create_engine
+from .image_cleanup import clear_unpinned, purge_and_enforce
 from .storage import ClipboardStore
 from .watcher import ClipboardWatcher, PyperclipPILProvider
 
+logger = logging.getLogger(__name__)
+
 PURGE_INTERVAL_SECONDS = 3600  # re-apply the retention rule hourly while running
-
-
-def _remove_image_files(items) -> None:
-    for item in items:
-        if item.image_path:
-            try:
-                Path(item.image_path).unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _purge_loop(store: ClipboardStore, config: Config, stop: threading.Event) -> None:
     while not stop.wait(PURGE_INTERVAL_SECONDS):
         try:
-            _remove_image_files(store.purge_expired(config.retention_days))
-            _remove_image_files(store.enforce_max_items(config.max_items))
-        except Exception as exc:
-            print(f"[smart-clipboard] retention cleanup failed: {exc}", file=sys.stderr)
+            purge_and_enforce(
+                store, config.images_dir, config.retention_days, config.max_items
+            )
+        except Exception:
+            logger.exception("Retention cleanup failed")
 
 
 def _build_engine(config: Config):
     try:
         return create_engine(config)
     except Exception as exc:
-        print(f"[smart-clipboard] OCR disabled: {exc}", file=sys.stderr)
+        logger.warning("OCR disabled: %s", exc)
         return None
 
 
@@ -54,10 +49,10 @@ def cmd_run(args) -> int:
     Path(config.images_dir).mkdir(parents=True, exist_ok=True)
     store = ClipboardStore(config.db_path)
 
-    # Apply the retention rule on startup, so old items disappear even if the
-    # app was not running when they aged out.
-    _remove_image_files(store.purge_expired(config.retention_days))
-    _remove_image_files(store.enforce_max_items(config.max_items))
+    # Apply retention under the same cross-process lock as image capture.
+    purge_and_enforce(
+        store, config.images_dir, config.retention_days, config.max_items
+    )
 
     engine = _build_engine(config)
     provider = PyperclipPILProvider()
@@ -68,6 +63,7 @@ def cmd_run(args) -> int:
         ocr_engine=engine,
         poll_interval=config.poll_interval_seconds,
         copy_ocr_result_to_clipboard=config.copy_ocr_result_to_clipboard,
+        max_items=config.max_items,
     )
 
     stop = threading.Event()
@@ -90,9 +86,15 @@ def cmd_run(args) -> int:
         pass
     finally:
         stop.set()
-        watcher.stop()
+        watcher_stopped = watcher.stop()
         purge_thread.join(timeout=5)
-        store.close()
+        purge_stopped = not purge_thread.is_alive()
+        if watcher_stopped and purge_stopped:
+            store.close()
+        else:
+            logger.warning(
+                "A background worker is still busy; leaving the database open until process exit"
+            )
     return 0
 
 
@@ -111,8 +113,7 @@ def cmd_history(args) -> int:
 def cmd_clear(args) -> int:
     config = Config.load()
     with ClipboardStore(config.db_path) as store:
-        removed = store.clear_unpinned()
-    _remove_image_files(removed)
+        removed = clear_unpinned(store, config.images_dir)
     print(f"removed {len(removed)} unpinned item(s); pinned items kept")
     return 0
 
