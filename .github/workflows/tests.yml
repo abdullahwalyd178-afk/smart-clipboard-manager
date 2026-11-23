@@ -13,6 +13,10 @@ jobs:
       # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
       # pixels: OS-stack shaping/reorder can only be judged visually.
       - run: python tools/render_probe.py
+      - name: Surface render metrics as annotation
+        if: always()
+        shell: bash
+        run: python -c "import json; m=json.load(open('render-out/metrics.json')); print('::notice::METRICS '+json.dumps(m,separators=(',',':')))"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -36,5 +40,5 @@ jobs:
           cp -r render-out/* captures/$GITHUB_RUN_ID/ 2>/dev/null || echo "no captures"
           git add captures
           git commit -m "render captures for run $GITHUB_RUN_ID" || echo "nothing to commit"
-          git push origin ci-render || echo "PUBLISH_SKIPPED (token read-only?)"
+          PUSH_OUT=$(git push origin ci-render 2>&1 | tr '\n' ' ') || echo "::warning::PUBLISH_FAILED: $PUSH_OUT"
           git checkout -
