@@ -68,3 +68,25 @@ def test_periodic_sweep_keeps_fresh_orphan_removes_aged(store, images_dir):
     removed = sweep_orphan_images(store, images_dir, min_age_seconds=0)
     assert removed == []
     assert fresh.exists()
+
+
+def test_sweep_rechecks_db_right_before_delete(store, images_dir, monkeypatch):
+    # Defence in depth: even a file OLDER than the grace window survives if
+    # its database row appeared between the sweep's initial reference read
+    # and the delete attempt (slow capture, clock adjustments).
+    import os
+    import time
+
+    aged = images_dir / "late_ref.png"
+    aged.write_bytes(b"png")
+    old = time.time() - 3600
+    os.utime(aged, (old, old))
+
+    original = store.all_image_paths
+    monkeypatch.setattr(store, "all_image_paths", lambda: set())  # stale snapshot
+    store.add_image(str(aged), digest="d" * 64)  # row lands after snapshot
+
+    removed = sweep_orphan_images(store, images_dir, min_age_seconds=60)
+    assert removed == []
+    assert aged.exists()
+    monkeypatch.setattr(store, "all_image_paths", original)

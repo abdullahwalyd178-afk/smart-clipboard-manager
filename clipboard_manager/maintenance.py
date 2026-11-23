@@ -54,6 +54,14 @@ def sweep_orphan_images(
                 continue  # maybe an in-flight capture; check again next sweep
         except OSError:
             continue
+        # Second line of defense after the grace window: the referenced set
+        # above was read before this loop started, so re-check this exact
+        # path against the database immediately before deleting. A capture
+        # that wrote the PNG and inserted its row while we swept is caught
+        # here even if the file is older than the grace window (slow disk,
+        # clock adjustments).
+        if store.image_path_referenced(key):
+            continue
         try:
             path.unlink()
             removed.append(path)
