@@ -2,6 +2,8 @@
 
 import io
 
+import pytest
+
 from PIL import Image
 
 from clipboard_manager.watcher import ClipboardProvider, ClipboardWatcher
@@ -196,3 +198,48 @@ def test_ocr_failure_does_not_break_capture(store, images_dir):
     provider.image = PNG_B
     assert watcher.poll_once() is not None
     assert store.count() == 2
+
+
+def test_failed_image_insert_preserves_path_referenced_by_another_row(
+    store, images_dir, monkeypatch
+):
+    from clipboard_manager.models import IMAGE, ClipboardItem
+
+    provider = FakeProvider()
+    provider.image = PNG_A
+    watcher = make_watcher(store, images_dir, provider)
+    digest = ClipboardItem.hash_bytes(PNG_A)
+    image_path = images_dir / f"{digest[:16]}.png"
+
+    referenced = ClipboardItem(
+        id=None,
+        kind=IMAGE,
+        content_hash="other-hash",
+        image_path=str(image_path),
+        created_at=ClipboardItem.utcnow_iso(),
+    )
+    referenced.id = store._insert(referenced)
+
+    def fail_insert(*_args, **_kwargs):
+        raise RuntimeError("simulated database write failure")
+
+    monkeypatch.setattr(store, "add_image", fail_insert)
+    with pytest.raises(RuntimeError, match="simulated database write failure"):
+        watcher.poll_once()
+
+    assert store.image_path_referenced(str(image_path))
+    assert image_path.exists()
+
+
+def test_max_items_is_enforced_after_each_new_clip(store, images_dir):
+    provider = FakeProvider()
+    watcher = ClipboardWatcher(store, provider, images_dir, max_items=1)
+
+    provider.text = "first"
+    assert watcher.poll_once() is not None
+    provider.text = "second"
+    assert watcher.poll_once() is not None
+
+    items = store.list_items()
+    assert len(items) == 1
+    assert items[0].text == "second"
