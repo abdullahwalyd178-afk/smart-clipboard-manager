@@ -9,6 +9,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt pytest
+      # Probe-only deps: shape fixtures with the same pipeline the Linux viewer uses.
+      - run: pip install arabic-reshaper "python-bidi==0.6.12"
       - run: python -m pytest -q -rs
       # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
       # pixels: OS-stack shaping/reorder can only be judged visually.
@@ -21,7 +23,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for f in text_ordering_640; do
+          for f in text_shaped_640; do
             [ -f render-out/$f.png ] || { echo "skip $f (missing)"; continue; }
             base64 -w0 render-out/$f.png > "$RUNNER_TEMP/b64.txt"
             N=$(wc -c < "$RUNNER_TEMP/b64.txt")
