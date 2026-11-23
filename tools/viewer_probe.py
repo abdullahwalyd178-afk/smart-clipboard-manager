@@ -211,31 +211,22 @@ def main() -> int:
             import ctypes
             from ctypes import wintypes
 
-            EM_POSFROMCHAR = 0x00D6
-
-            def char_point(i):
-                r = wre._user32.SendMessageW(richedit.hwnd, EM_POSFROMCHAR, i, 0)
-                pt = wintypes.POINT(
-                    ctypes.c_short(r & 0xFFFF).value,
-                    ctypes.c_short((r >> 16) & 0xFFFF).value,
-                )
-                wre._user32.ClientToScreen(richedit.hwnd, ctypes.byref(pt))
-                return pt.x, pt.y
-
+            # Rich Edit message uses POINTL* in wParam, index in lParam.
+            # richedit.h: EM_POSFROMCHAR = WM_USER + 38.
+            EM_POSFROMCHAR = 0x0426
             bnd = CONTENT.index("budget")
-            # Post real button/motion messages to the control (client coords):
-            # mouse_event/SetCursorPos target the interactive desktop, which a
-            # headless CI session does not deliver reliably.
+
             def char_point_client(i):
-                r = wre._user32.SendMessageW(richedit.hwnd, EM_POSFROMCHAR, i, 0)
-                return (
-                    ctypes.c_short(r & 0xFFFF).value + 2,
-                    ctypes.c_short((r >> 16) & 0xFFFF).value + 5,
+                pt = wintypes.POINT()
+                wre._user32.SendMessageW(
+                    richedit.hwnd, EM_POSFROMCHAR, ctypes.byref(pt), i
                 )
+                return pt.x + 2, pt.y + 5
 
             def lbutton(msg, cx, cy):
                 wre._user32.SendMessageW(
-                    richedit.hwnd, msg, 1, (cy << 16) | (cx & 0xFFFF)
+                    richedit.hwnd, msg, 0 if msg == 0x0202 else 1,
+                    ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)
                 )
 
             x1, y1 = char_point_client(bnd - 5)  # inside the Arabic run before the boundary
@@ -261,7 +252,8 @@ def main() -> int:
             want = wre.u16slice(CONTENT, sa, sb) if sb > sa else ""
             print(
                 f"::notice::DRAG_DEBUG sel=({sa},{sb}) bnd={bnd} "
-                f"clip_len={len(got)} match={got == want}",
+                f"clip_len={len(got)} match={got == want} "
+                f"points=({x1},{y1}) to ({x2},{y2})",
                 flush=True,
             )
             has_ar = any("\u0600" <= c <= "\u06ff" for c in got)
@@ -276,6 +268,8 @@ def main() -> int:
                 failures.append(
                     f"drag selection bad: sel=({sa},{sb}) clip={got!r} want={want!r}"
                 )
+            # Preserve the selected pixels before readback changes selection.
+            ImageGrab.grab(bbox).save(os.path.join(OUT, "viewer_app_align2.png"))
             # Paragraph format readback: the RTL/alignment bits must actually
             # be stored on an RTL paragraph.
             EM_GETPARAFORMAT = 0x043D
@@ -311,47 +305,6 @@ def main() -> int:
                 failures.append(
                     f"paraformat readback: effects=0x{pf.wEffects:x} align={pf.wAlignment}"
                 )
-            # Alignment-value experiment (diagnostic, not a fix): store value
-            # 2 on paragraph 1 and re-capture. Pixels then distinguish enum
-            # semantics (MSDN: 1=RIGHT/2=CENTER; the advisor claims 2=RIGHT)
-            # from a rendering no-op, one variable at a time.
-            pf3 = wre.PARAFORMAT2()
-            pf3.cbSize = ctypes.sizeof(wre.PARAFORMAT2)
-            pf3.dwMask = wre.PFM_ALIGNMENT
-            pf3.wAlignment = 2
-            line1_len = len(CONTENT.split("\n")[0])
-            richedit.set_sel(0, line1_len)
-            r_exp = wre._user32.SendMessageW(
-                richedit.hwnd, EM_SETPARAFORMAT, 0, ctypes.byref(pf3)
-            )
-            for _ in range(10):
-                root.update()
-                time.sleep(0.02)
-            img2 = ImageGrab.grab(bbox)
-            path2 = os.path.join(OUT, "viewer_app_align2.png")
-            img2.save(path2)
-            g2 = img2.convert("L")
-            px2, w2, h2 = g2.load(), g2.size[0], g2.size[1]
-            gaps2 = []
-            in_band = False
-            for yy in range(2, h2 - 2):
-                row_has = any(px2[xx, yy] < 100 for xx in range(2, w2 - 2))
-                if row_has and not in_band:
-                    band_start, in_band = yy, True
-                elif not row_has and in_band:
-                    if yy - band_start > 3:
-                        max_x = 0
-                        for yy2 in range(band_start, yy):
-                            for xx in range(w2 - 3, 1, -1):
-                                if px2[xx, yy2] < 100:
-                                    max_x = max(max_x, xx)
-                                    break
-                        gaps2.append(w2 - 1 - max_x)
-                    in_band = False
-            print(
-                f"::notice::ALIGN2_EXPERIMENT set_ret={r_exp} gaps={gaps2}",
-                flush=True,
-            )
             # Esc reaches the close path while the HWND has focus
             richedit._wndproc(richedit.hwnd, wre.WM_KEYDOWN, wre.VK_ESCAPE, 0)
             root.update()
