@@ -23,6 +23,7 @@ jobs:
       # without an API token (public raw URLs). Tolerated if the token is read-only.
       - name: Publish render captures to ci-render branch
         if: always()
+        shell: bash
         run: |
           git config user.email "ci-render@localhost"
           git config user.name "ci-render"
