@@ -39,6 +39,16 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
+    # os.kill(pid, 0) also succeeds for zombies: a crashed UI whose parent
+    # has not reaped it yet would lock the guard forever. Where /proc exists
+    # (Linux), treat a zombie as dead.
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        state = stat.rsplit(")", 1)[-1].split()[0]
+        if state == "Z":
+            return False
+    except (OSError, IndexError):
+        pass  # no /proc (macOS) or process gone between the two checks
     return True
 
 
