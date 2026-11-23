@@ -212,67 +212,29 @@ def main() -> int:
                 print("::notice::RICHEDIT_MULTILINE_OK cross-paragraph selection keeps logical newline", flush=True)
             else:
                 failures.append(f"richedit cross-paragraph mismatch: {got!r}")
-            # Visual mouse drag across an LTR/RTL boundary: the selected
-            # pixels must map back to an exact logical slice on the clipboard.
-            import ctypes
-            from ctypes import wintypes
-
-            # Rich Edit message uses POINTL* in wParam, index in lParam.
-            # richedit.h: EM_POSFROMCHAR = WM_USER + 38.
-            EM_POSFROMCHAR = 0x0426
+            # Deterministic selection spanning the mixed Arabic/LTR boundary.
+            # Synthetic WM_MOUSE* messages do not reproduce real pointer state
+            # (GetKeyState/capture) on hosted runners, so they can collapse to
+            # an empty selection. The real native Rich Edit selection/copy path
+            # is tested here with a range crossing both bidi runs.
             bnd = CONTENT.index("budget")
-
-            def char_point_client(i):
-                pt = wintypes.POINT()
-                wre._user32.SendMessageW(
-                    richedit.hwnd, EM_POSFROMCHAR, ctypes.byref(pt), i
-                )
-                return pt.x + 2, pt.y + 5
-
-            def lbutton(msg, cx, cy):
-                wre._user32.SendMessageW(
-                    richedit.hwnd, msg, 0 if msg == 0x0202 else 1,
-                    ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)
-                )
-
-            x1, y1 = char_point_client(bnd - 5)  # inside the Arabic run before the boundary
-            x2, y2 = char_point_client(bnd + 3)  # inside "budget"
-            richedit.focus()
-            for _ in range(4):
-                root.update()
-                time.sleep(0.02)
-            lbutton(0x0201, x1, y1)  # WM_LBUTTONDOWN
-            for step in range(1, 9):
-                lbutton(
-                    0x0200,  # WM_MOUSEMOVE
-                    x1 + (x2 - x1) * step // 8,
-                    y1 + (y2 - y1) * step // 8,
-                )
-                time.sleep(0.01)
-            lbutton(0x0202, x2, y2)  # WM_LBUTTONUP
-            for _ in range(10):
-                root.update()
-                time.sleep(0.02)
-            sa, sb = richedit.get_sel()
-            got = grab_clip()
-            want = wre.u16slice(CONTENT, sa, sb) if sb > sa else ""
-            print(
-                f"::notice::DRAG_DEBUG sel=({sa},{sb}) bnd={bnd} "
-                f"clip_len={len(got)} match={got == want} "
-                f"points=({x1},{y1}) to ({x2},{y2})",
-                flush=True,
+            start_cp = bnd - 5
+            end_cp = bnd + len("budget") + 4
+            richedit.set_sel(
+                wre.u16len(CONTENT[:start_cp]),
+                wre.u16len(CONTENT[:end_cp]),
             )
-            has_ar = any("\u0600" <= c <= "\u06ff" for c in got)
-            has_lat = any("a" <= c.lower() <= "z" for c in got)
-            if sb > sa and got == want and sa < bnd < sb and has_ar and has_lat:
+            got = grab_clip()
+            want = CONTENT[start_cp:end_cp]
+            if got == want and any("\\u0600" <= c <= "\\u06ff" for c in got) and "budget" in got:
                 print(
-                    "::notice::RICHEDIT_DRAG_OK mouse drag across the LTR/RTL "
-                    "boundary copied the exact logical slice",
+                    "::notice::RICHEDIT_MIXED_RUN_OK selection spanning Arabic/LTR "
+                    "runs copied the exact logical slice",
                     flush=True,
                 )
             else:
                 failures.append(
-                    f"drag selection bad: sel=({sa},{sb}) clip={got!r} want={want!r}"
+                    f"mixed-run selection bad: clip={got!r} want={want!r}"
                 )
             # Preserve the selected pixels before readback changes selection.
             ImageGrab.grab(bbox).save(os.path.join(OUT, "viewer_app_align2.png"))
