@@ -89,11 +89,12 @@ def cmd_run(args) -> int:
         stop.set()
         watcher_stopped = watcher.stop()
         purge_thread.join(timeout=5)
-        if watcher_stopped:
+        purge_stopped = not purge_thread.is_alive()
+        if watcher_stopped and purge_stopped:
             store.close()
         else:
             logger.warning(
-                "Watcher is still busy; leaving the database open until process exit"
+                "A background worker is still busy; leaving the database open until process exit"
             )
     return 0
 
