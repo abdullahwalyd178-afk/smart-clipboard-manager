@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from clipboard_manager.models import IMAGE, ClipboardItem\nfrom clipboard_manager.image_cleanup import (
+from clipboard_manager.models import IMAGE, ClipboardItem
+from clipboard_manager.image_cleanup import (
     clear_unpinned,
     delete_item,
     purge_and_enforce,
