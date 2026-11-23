@@ -272,3 +272,29 @@ def test_viewer_copy_returns_logical_text(window):
     window._viewer_copy(widget, body.split("\n"))
     assert window.root.clipboard_get() == body
     tops[0].destroy()
+
+
+def test_shaping_active_on_linux_when_libs_installed():
+    """Guard regression: if the libs import, the shaping path MUST be active
+    (a silent identity fallback once shipped unshaped Arabic as 'done')."""
+    import importlib.util
+    import sys as _sys
+
+    if not _sys.platform.startswith("linux"):
+        pytest.skip("linux-only assertion")
+    if importlib.util.find_spec("arabic_reshaper") is None or importlib.util.find_spec("bidi") is None:
+        pytest.skip("shaping libs not installed")
+    from clipboard_manager import text_shaping as _ts
+
+    assert _ts.shaping_active() is True
+
+
+def test_shaping_inactive_on_windows():
+    """Windows/macOS rely on the OS text stack; manual shaping must stay off."""
+    import sys as _sys
+
+    if not _sys.platform.startswith(("win", "darwin")):
+        pytest.skip("windows/macos-only assertion")
+    from clipboard_manager import text_shaping as _ts
+
+    assert _ts.shaping_active() is False
