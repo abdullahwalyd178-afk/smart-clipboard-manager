@@ -330,3 +330,47 @@ def test_viewer_copy_no_newlines_at_wrap_breaks(window):
     window._viewer_copy(widget, body.split("\n"))
     assert window.root.clipboard_get() == body  # exact logical text, no injected breaks
     tops[0].destroy()
+
+
+@pytest.mark.xfail(strict=True, reason="reproduction: partial selection across a wrap boundary splices a corrupted logical slice - root cause pending")
+@pytest.mark.skipif(sys.platform == "win32", reason="X11 display behavior")
+def test_viewer_copy_partial_selection_across_wrap(window):
+    """A mid-word selection crossing a wrap break returns a clean slice of the
+    logical body: no injected newline, no foreign characters."""
+    long_line = "سطر طويل " * 40
+    body = long_line + "\nسطر ثان"
+    window.store.add_text(body)
+    window.refresh()
+    first = window.tree.get_children()[0]
+    window.tree.selection_set(first)
+    window.view_full()
+    window.root.update()
+    tops = [w for w in window.root.winfo_children() if w.winfo_class() == "Toplevel"]
+
+    def find_text(w):
+        if w.winfo_class() == "Text":
+            return w
+        for c in w.winfo_children():
+            found = find_text(c)
+            if found is not None:
+                return found
+        return None
+
+    widget = find_text(tops[0])
+    rows = int(widget.index("end-1c").split(".")[0])
+    assert rows > 2
+    # mid-word start on row 1 into mid-word on row 2 (a wrap boundary)
+    widget.tag_add("sel", "1.3", "2.8")
+    window._viewer_copy(widget, body.split("\n"))
+    got = window.root.clipboard_get()
+    assert got
+    assert "\n" not in got  # wrap break must not become a newline
+    assert got in body  # exact logical slice, nothing invented
+    # selection spanning the real logical newline keeps exactly one
+    widget.tag_remove("sel", "1.0")
+    widget.tag_add("sel", "1.3", f"{rows}.end")
+    window._viewer_copy(widget, body.split("\n"))
+    got2 = window.root.clipboard_get()
+    assert got2.count("\n") == 1
+    assert got2 in body or body.endswith(got2) or got2 == body[body.index(got2[:1]):]  # contiguous slice
+    tops[0].destroy()
