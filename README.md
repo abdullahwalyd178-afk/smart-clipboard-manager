@@ -105,6 +105,15 @@ Tests cover: storage/dedup, pin + 3-day retention, restart persistence, clipboar
 
 pyperclip · Pillow · pystray · SQLite · Tesseract (default OCR) · optional EasyOCR / pix2tex
 
+## العربية والنص ثنائي الاتجاه · Arabic & BiDi text
+
+- النص العربي بيتعرض مُشكَّل (حروف متصلة واتجاه صحيح) في القائمة وخانة التعديل وعارض المحتوى الكامل، لكن النص المخزّن مبيتغيّرش أبدًا — التشكيل للعرض بس.
+  Arabic text is reshaped for display only (history list, edit entry, full-content viewer). The stored text is never modified; shaping is display-time only.
+- التعديل والنسخ بيشتغلوا على الحروف المنطقية: المسح بيشيل بالظبط الحرف اللي تحت المؤشر، ونسخ تحديد بيرجّع الحروف المحدّدة بس وبالترتيب المنطقي الصحيح — حتى لو التحديد ممتد على أسطر ملفوفة.
+  Editing and copying operate on logical characters: delete removes exactly the character under the cursor, and copying a selection reconstructs only the selected characters in correct logical order, even when the selection spans wrapped lines.
+- رموز التحكم الصريحة في الاتجاه (RLE/LRE/RLO/LRO/PDF) بتفضل محفوظة في العنصر المخزّن لكنها مش بتظهر ولا بتتظلّل في العرض المُشكَّل؛ و"Copy back" بيرجّع النص المخزّن الأصلي حرف بحرف من غير أي فقد. علامات التشكيل (الحركات) محفوظة وبتفضل تابعة لحرفها.
+  Explicit bidi embedding/override controls (RLE/LRE/RLO/LRO/PDF) stay intact in the stored item but are not visible or selectable in the shaped display; Copy back returns the original stored text byte-for-byte. Combining marks (harakat) are preserved and stay attached to their base letter.
+
 ## حدود معروفة · Known limitations
 
 - ويندوز هو الهدف الأساسي (اتبني واتختبر عليه). لينكس شغال لمراقبة الحافظة بس الـ Tray محتاج AppIndicator.
