@@ -35,7 +35,7 @@ def test_sweep_waits_for_capture_lock_before_delete(store, images_dir):
         done.append(sweep_orphan_images(store, images_dir))
 
     with image_files_lock(images_dir):
-        t = threading.Thread(target=run_sweep, daeman=True)
+        t = threading.Thread(target=run_sweep, daemon=True)
         t.start()
         time.sleep(0.5)
         # while the lock is held the sweep must be blocked, file untouched
