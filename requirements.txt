@@ -15,4 +15,5 @@ pystray>=0.19
 
 # Arabic/RTL display shaping for Tk on Linux/X11 (Windows/macOS shape via the OS text stack).
 arabic-reshaper>=3.0.0; sys_platform == "linux"
-# Pinned exactly: we rely on python-bidi internal pipeline (get_empty_storage et al.)\npython-bidi==0.6.12; sys_platform == "linux"
+# Pinned exactly: we rely on python-bidi internal pipeline (get_empty_storage et al.)
+python-bidi==0.6.12; sys_platform == "linux"
