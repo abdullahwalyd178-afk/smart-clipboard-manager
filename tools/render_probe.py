@@ -70,10 +70,14 @@ FIXTURES = {
 # presentation forms render correctly on Windows, the SAME single backend
 # fixes the Windows viewer. Skipped cleanly when shaping deps are absent.
 try:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from clipboard_manager.text_shaping import shape_with_map as _swm
+    # Replicates text_shaping's exact 1:1 pipeline. NOT imported from the
+    # package: text_shaping gates shaping to Linux by design (the assumption
+    # this probe is testing), so on Windows it would return text unchanged.
+    from arabic_reshaper import ArabicReshaper as _AR
+    from bidi.algorithm import get_display as _gd
+    _reshaper = _AR(configuration={"support_ligatures": False, "delete_harakat": False})
     for _key in ("short_arabic", "long_arabic", "mixed", "paren_number"):
-        _disp, _ = _swm(FIXTURES[_key])
+        _disp = _gd(_reshaper.reshape(FIXTURES[_key]))
         if _disp != FIXTURES[_key]:
             FIXTURES["shaped_" + _key] = _disp
 except Exception as _exc:  # missing arabic-reshaper / python-bidi: skip, not a render failure
