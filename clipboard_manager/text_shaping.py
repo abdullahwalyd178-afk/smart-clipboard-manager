@@ -13,6 +13,7 @@ content are always kept in logical order; only what is drawn is reshaped.
 from __future__ import annotations
 
 import sys
+import unicodedata
 
 _ARABIC_RANGES = (
     ("؀", "ۿ"),  # Arabic
@@ -49,7 +50,10 @@ def _reshape(text: str) -> str:
 
 
 def _has_rtl(text: str) -> bool:
-    return any(lo <= ch <= hi for ch in text for lo, hi in _ARABIC_RANGES)
+    # Unicode bidi classes, not block ranges: catches Arabic Supplement /
+    # Extended-A and skips full-width Latin forms (old block range bled to
+    # U+FFFF). Explicit bidi controls without RTL letters stay out on purpose.
+    return any(unicodedata.bidirectional(ch) in ("R", "AL") for ch in text)
 
 
 def shaping_active() -> bool:
