@@ -55,5 +55,5 @@ def clear_unpinned(
     """Delete unpinned rows and their images under the shared capture lock."""
     with image_files_lock(images_dir):
         removed = store.clear_unpinned()
-        _unlink_images(removed)
+        _unlink_images(store, removed)
     return removed
