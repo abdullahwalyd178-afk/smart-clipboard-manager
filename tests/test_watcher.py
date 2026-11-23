@@ -533,3 +533,23 @@ def test_stop_does_not_report_success_if_restart_replaces_worker_during_join(sto
     assert stop_result == [False]
     assert wait_until(lambda: store.get(second.id).ocr_text == "result 2", timeout=2)
     assert watcher.stop(timeout=2) is True
+
+
+def test_empty_ocr_result_is_persisted_as_completed(store, images_dir):
+    provider = FakeProvider()
+    ocr = FakeOCR("")
+    watcher = make_watcher(store, images_dir, provider)
+
+    # Attach the engine after construction to keep the test focused on the
+    # worker's result handling rather than worker startup behavior.
+    watcher.ocr_engine = ocr
+    provider.image = PNG_A
+    item = watcher.poll_once()
+    assert item is not None
+
+    watcher._process_ocr(item.id, item.image_path, item.content_hash)
+
+    saved = store.get(item.id)
+    assert saved is not None
+    assert saved.ocr_text == ""
+    assert provider.set_calls == []

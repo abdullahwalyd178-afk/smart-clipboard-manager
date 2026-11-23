@@ -250,10 +250,16 @@ class ClipboardWatcher:
         except Exception:
             logger.exception("OCR failed for clipboard image %s", image_path)
             return
-        if not ocr_text or self.store.get(item_id) is None:
+        if self.store.get(item_id) is None:
             return
 
-        self.store.set_ocr_text(item_id, ocr_text)
+        # Persist an empty result as a completed OCR attempt. Leaving NULL
+        # makes the UI/state indistinguishable from work still in progress.
+        normalized_text = (ocr_text or "").strip()
+        self.store.set_ocr_text(item_id, normalized_text)
+        if not normalized_text:
+            logger.info("OCR completed without readable text for clipboard image %s", image_path)
+            return
         if self.copy_ocr_result_to_clipboard and self._current_clipboard_hash() == digest:
             try:
                 self.provider.set_text(ocr_text)
