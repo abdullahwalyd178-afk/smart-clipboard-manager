@@ -130,7 +130,7 @@ class TrayApp:
         return action
 
     def _clear_unpinned(self, icon=None, item=None) -> None:
-        removed = clear_unpinned(self.store, self.watcher.images_dir)
+        clear_unpinned(self.store, self.watcher.images_dir)
         self.icon.update_menu()
 
     def _quit(self, icon=None, item=None) -> None:
