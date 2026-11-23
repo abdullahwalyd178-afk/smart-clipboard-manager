@@ -412,6 +412,9 @@ def test_restart_after_timed_out_ocr_stop_processes_tasks_queued_after_sentinel(
     # Restart while the old worker is still busy, then queue a new image
     # behind the sentinel. The old worker must hand off to a fresh worker.
     watcher.start()
+    # Let the watcher perform its immediate first poll of the unchanged clip;
+    # the long interval keeps the test's explicit poll deterministic.
+    time.sleep(0.05)
     provider.image = PNG_B
     second = watcher.poll_once()
     assert second is not None and second.id != first.id
