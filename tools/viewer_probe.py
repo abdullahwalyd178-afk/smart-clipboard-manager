@@ -92,6 +92,8 @@ def main() -> int:
     top = tops[0]
     richedit = getattr(win, "_viewer_richedit", None)
     if richedit is not None:
+        import ctypes
+
         print(
             "RICHEDIT_PARAGRAPH_FORMAT_READBACK "
             + json.dumps(richedit.paragraph_format_results, ensure_ascii=False),
@@ -226,7 +228,7 @@ def main() -> int:
             )
             got = grab_clip()
             want = CONTENT[start_cp:end_cp]
-            if got == want and any("\\u0600" <= c <= "\\u06ff" for c in got) and "budget" in got:
+            if got == want and any("\u0600" <= c <= "\u06ff" for c in got) and "budget" in got:
                 print(
                     "::notice::RICHEDIT_MIXED_RUN_OK selection spanning Arabic/LTR "
                     "runs copied the exact logical slice",
