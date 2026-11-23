@@ -173,14 +173,31 @@ class HistoryWindow:
             body = f"[image: {item.image_path}]"
         win = tk.Toplevel(self.root)
         win.title("Full content")
-        win.geometry("640x400")
+        # Place near the main window, clamped to the screen so the viewer
+        # never opens off the visible area.
+        self.root.update_idletasks()
+        x = max(0, min(self.root.winfo_x() + 40, win.winfo_screenwidth() - 640))
+        y = max(0, min(self.root.winfo_y() + 40, win.winfo_screenheight() - 400))
+        win.geometry(f"640x400+{x}+{y}")
         meta = f"{item.kind} - copied {item.created_at}"
         if item.tags:
             meta += " - tags: " + item.tags.replace(",", ", ")
         ttk.Label(win, text=meta).pack(anchor=tk.W, padx=8, pady=(8, 0))
-        msg = tk.Message(win, text=shape_for_display(body), width=600)
-        msg.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        # Read-only Text (not Message) so long content scrolls and the user
+        # can select and copy it. Keys are swallowed to keep it read-only;
+        # Ctrl combos (copy) keep their default behavior.
+        ttk.Button(win, text="Close (Esc)", command=win.destroy).pack(side=tk.BOTTOM, pady=(0, 8))
+        frame = ttk.Frame(win)
+        frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        text = tk.Text(frame, wrap=tk.WORD, width=72, height=20)
+        scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        text.insert("1.0", shape_for_display(body))
+        text.bind("<Key>", lambda e: None if (e.state & 0x4 or e.keysym == "Escape") else "break")
         win.bind("<Escape>", lambda _e: win.destroy())
+        text.focus_set()
 
     # -- data ---------------------------------------------------------------
 
