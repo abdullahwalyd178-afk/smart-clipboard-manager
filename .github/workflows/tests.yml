@@ -14,32 +14,34 @@ jobs:
       - shell: bash
         run: |
           set -o pipefail
-          python -m pytest -q -rs 2>&1 | tee "$RUNNER_TEMP/pytest-out.txt"
+          python -m pytest -q -rs 2>&1 | tee pytest-out.txt
       - name: Surface pytest failures as annotations
         if: failure()
         shell: bash
         run: |
           grep -E "^(FAILED|ERROR)" "$RUNNER_TEMP/pytest-out.txt" | head -30 | while IFS= read -r l; do echo "::error::$l"; done
-          awk '/^=+ (FAILURES|ERRORS) =+/,0' "$RUNNER_TEMP/pytest-out.txt" | head -90 | while IFS= read -r l; do echo "::notice::TB $l"; done
+          { awk '/^=+ (FAILURES|ERRORS) =+/,0' pytest-out.txt | head -90 | while IFS= read -r l; do echo "::notice::TB $l"; done; } || true
       # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
       # pixels: OS-stack shaping/reorder can only be judged visually.
       - shell: bash
         run: |
           set -o pipefail
-          python tools/render_probe.py 2>&1 | tee "$RUNNER_TEMP/render-probe-out.txt"
+          python tools/render_probe.py 2>&1 | tee render-probe-out.txt
       - name: Surface render_probe failure lines
-        if: failure()
+        if: always()
         shell: bash
-        run: grep -E "PROBE_|Error|Traceback" "$RUNNER_TEMP/render-probe-out.txt" | head -25 | while IFS= read -r l; do echo "::error::$l"; done
+        run: |
+          { grep -E "PROBE_|Error|Traceback" render-probe-out.txt | head -25 | while IFS= read -r l; do echo "::error::$l"; done; } || true
 
       - shell: bash
         run: |
           set -o pipefail
-          python tools/viewer_probe.py 2>&1 | tee "$RUNNER_TEMP/viewer-probe-out.txt"
+          python tools/viewer_probe.py 2>&1 | tee viewer-probe-out.txt
       - name: Surface viewer_probe failure lines
-        if: failure()
+        if: always()
         shell: bash
-        run: grep -E "PROBE_|Error|Traceback" "$RUNNER_TEMP/viewer-probe-out.txt" | head -25 | while IFS= read -r l; do echo "::error::$l"; done
+        run: |
+          { grep -E "PROBE_|Error|Traceback" viewer-probe-out.txt | head -25 | while IFS= read -r l; do echo "::error::$l"; done; } || true
       - name: Surface render metrics as annotation
         if: always()
         shell: bash
