@@ -280,6 +280,9 @@ class HistoryWindow:
         x = max(margin, min(self.root.winfo_x() + 40, max_x))
         y = max(margin, min(self.root.winfo_y() + 40, max_y))
         win.geometry(f"{w}x{h}+{x}+{y}")
+        # Fixed size: display rows are broken once at open time (wrap-first);
+        # resizing would not re-flow them.
+        win.resizable(False, False)
         meta = f"{item.kind} - copied {item.created_at}"
         if item.tags:
             meta += " - tags: " + item.tags.replace(",", ", ")
@@ -299,6 +302,7 @@ class HistoryWindow:
         # map; copy then reconstructs the logical text of the selection.
         viewer_lines = body.split("\n")
         self._viewer_line_maps: dict[int, tuple[str, list[int]]] = {}
+        self._viewer_row_seps: dict[int, str] = {}
         # Windows Tk reverses letters inside each Arabic word but never the
         # word order, so it gets word-reordered logical text; Linux/X11 gets
         # full reshape+get_display. Either way rows are broken in LOGICAL
@@ -319,12 +323,20 @@ class HistoryWindow:
         win.update_idletasks()
         max_px = text.winfo_reqwidth() - 12
         displays: list[str] = []
-        for line in viewer_lines:
-            for row in wrap_logical_line(line, measure, max_px):
+        # Separators that FOLLOW each display row: "" for soft wrap breaks,
+        # "\n" for real logical line breaks - copy must not inject newlines
+        # where the original text had none.
+        self._viewer_row_seps: dict[int, str] = {}
+        for li, line in enumerate(viewer_lines):
+            rows = wrap_logical_line(line, measure, max_px)
+            for ri, row in enumerate(rows):
                 display, d2l = transform(row)
                 if d2l != list(range(len(row))):
                     self._viewer_line_maps[len(displays) + 1] = (row, d2l)
                 displays.append(display)
+                last_row = ri == len(rows) - 1
+                last_line = li == len(viewer_lines) - 1
+                self._viewer_row_seps[len(displays)] = "\n" if (last_row and not last_line) else ""
         text.insert(tk.END, "\n".join(displays))
         text.bind("<<Copy>>", lambda e: self._viewer_copy(text, viewer_lines))
         text.bind("<Key>", lambda e: None if (e.state & 0x4 or e.keysym == "Escape") else "break")
@@ -355,8 +367,10 @@ class HistoryWindow:
                 pieces.append(logical_slice(original, d2l, a, min(b, len(d2l))))
             else:
                 pieces.append(disp_line[a:b])
+            if ln < li2:
+                pieces.append(self._viewer_row_seps.get(ln, "\n"))
         self.root.clipboard_clear()
-        self.root.clipboard_append("\n".join(pieces))
+        self.root.clipboard_append("".join(pieces))
         return "break"
 
     # -- data ---------------------------------------------------------------
