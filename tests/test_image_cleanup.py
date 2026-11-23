@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ from clipboard_manager.image_cleanup import (
 def _add_image(store, images_dir: Path):
     image_path = images_dir / "shared.png"
     image_path.write_bytes(b"test image")
-    item, created = store.add_image(str(image_path), digest="shared-image")
+    item, created = store.add_image(\n        str(image_path),\n        digest="shared-image",\n        created_at=(datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds"),\n    )
     assert created
     return item, image_path
 
@@ -36,7 +37,7 @@ def test_image_cleanup_waits_for_capture_lock_on_all_platforms(
         if operation == "clear":
             return clear_unpinned(store, images_dir)
         return purge_and_enforce(
-            store, images_dir, retention_days=0, max_items=0
+            store, images_dir, retention_days=1, max_items=0
         )
 
     holder = subprocess.Popen(
