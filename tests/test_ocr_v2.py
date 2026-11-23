@@ -69,6 +69,10 @@ class RecordingStore:
     def set_ocr_status(self, item_id, status):
         self.item.ocr_status = status
 
+    def set_ocr_text(self, item_id, text):
+        self.item.ocr_text = text
+        self.item.ocr_status = "done"
+
 
 class _Item:
     def __init__(self, path):
@@ -106,11 +110,13 @@ def test_tracking_engine_marks_failure():
     assert store.failed == [7]
 
 
-def test_tracking_engine_empty_result_not_marked_done():
+def test_tracking_engine_empty_result_is_marked_done():
     item = _Item("/tmp/s.png")
     store = RecordingStore(item)
-    TrackingEngine(EmptyEngine(), store).extract_text("/tmp/s.png")
-    assert item.ocr_status is None
+    result = TrackingEngine(EmptyEngine(), store).extract_text("/tmp/s.png")
+    assert result == ""
+    assert item.ocr_text == ""
+    assert item.ocr_status == "done"
 
 
 @pytest.mark.skipif(not HAVE_TESSERACT, reason="tesseract not installed")
