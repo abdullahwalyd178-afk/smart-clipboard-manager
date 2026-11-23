@@ -15,6 +15,8 @@ jobs:
       # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
       # pixels: OS-stack shaping/reorder can only be judged visually.
       - run: python tools/render_probe.py
+
+      - run: python tools/viewer_probe.py
       - name: Surface render metrics as annotation
         if: always()
         shell: bash
@@ -23,7 +25,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for f in text_ordering_640; do
+          for f in text_ordering_640 viewer_app; do
             [ -f render-out/$f.png ] || { echo "skip $f (missing)"; continue; }
             base64 -w0 render-out/$f.png > "$RUNNER_TEMP/b64.txt"
             N=$(wc -c < "$RUNNER_TEMP/b64.txt")
