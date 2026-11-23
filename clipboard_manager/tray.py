@@ -15,8 +15,8 @@ import pystray
 from PIL import Image, ImageDraw
 
 from .models import ClipboardItem
-from .storage import ClipboardStore
 from .image_cleanup import clear_unpinned, delete_item
+from .storage import ClipboardStore
 from .watcher import ClipboardWatcher, ClipboardProvider
 
 logger = logging.getLogger(__name__)
