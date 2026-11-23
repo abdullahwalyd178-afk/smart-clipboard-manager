@@ -226,13 +226,17 @@ class ClipboardWatcher:
             return None
 
         if self.ocr_engine is not None:
+            ocr_failed = False
             try:
                 ocr_text = self.ocr_engine.extract_text(str(image_path))
             except Exception:
                 ocr_text = ""
+                ocr_failed = True
             # Empty output is a completed attempt, not an absent/pending result.
-            self.store.set_ocr_text(item.id, ocr_text)
-            item.ocr_text = ocr_text
+            # Do not overwrite TrackingEngine's explicit failed status.
+            if not ocr_failed:
+                self.store.set_ocr_text(item.id, ocr_text)
+                item.ocr_text = ocr_text
             if ocr_text and self.copy_ocr_result_to_clipboard:
                 # OCR can take seconds; never overwrite a newer user copy.
                 if self._current_clipboard_hash() == digest:
