@@ -22,8 +22,15 @@ jobs:
         shell: bash
         run: |
           for f in text_640 text_1024; do
-            B=$(base64 -w0 render-out/$f.png)
-            echo "::notice::PNG_B64_$f $B"
+            base64 -w0 render-out/$f.png > "$RUNNER_TEMP/b64.txt"
+            N=$(wc -c < "$RUNNER_TEMP/b64.txt")
+            CH=$(( (N + 3899) / 3900 ))
+            i=0
+            while [ $i -lt $CH ]; do
+              i=$((i+1))
+              SEG=$(tail -c +$(( (i-1)*3900 + 1 )) "$RUNNER_TEMP/b64.txt" | head -c 3900)
+              echo "::notice::PNG_${f}_C${i}of${CH} $SEG"
+            done
           done
       - uses: actions/upload-artifact@v4
         if: always()
