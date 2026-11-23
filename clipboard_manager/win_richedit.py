@@ -229,7 +229,10 @@ class RichEditViewer:
             pf.dwMask = PFM_RTLPARA | PFM_ALIGNMENT
             pf.wEffects = PFE_RTLPARA
             pf.wAlignment = PFA_RIGHT
-            _user32.SendMessageW(self.hwnd, EM_SETPARAFORMAT, SCF_SELECTION, ctypes.byref(pf))
+            # EM_SETPARAFORMAT wParam must be 0 (SCF_* is EM_SETCHARFORMAT-only);
+            # a nonzero wParam makes the call fail silently and the paragraph
+            # keeps its default (left) alignment.
+            _user32.SendMessageW(self.hwnd, EM_SETPARAFORMAT, 0, ctypes.byref(pf))
 
     def get_text(self) -> str:
         n = _user32.SendMessageW(self.hwnd, WM_GETTEXTLENGTH, 0, 0)
