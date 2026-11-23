@@ -90,10 +90,22 @@ def main() -> int:
         print("PROBE_FAILED: viewer Toplevel did not open", flush=True)
         return 1
     top = tops[0]
-    widget = find_widget(top, "Text")
-    if widget is None:
-        print("PROBE_FAILED: no Text widget in viewer", flush=True)
+    richedit = getattr(win, "_viewer_richedit", None)
+    if sys.platform == "win32" and richedit is None:
+        err = getattr(win, "_viewer_backend_error", None) or "unknown"
+        print(f"PROBE_FAILED: win32 viewer did not select the Rich Edit backend: {err}", flush=True)
         return 1
+    if richedit is not None:
+        # win32 native path: the Rich Edit HWND fills this frame.
+        widget = find_widget(top, "TFrame") or find_widget(top, "Frame")
+        if widget is None:
+            print("PROBE_FAILED: no host frame for Rich Edit viewer", flush=True)
+            return 1
+    else:
+        widget = find_widget(top, "Text")
+        if widget is None:
+            print("PROBE_FAILED: no Text widget in viewer", flush=True)
+            return 1
     if not wait_viewable(widget):
         print("PROBE_FAILED: viewer Text never viewable", flush=True)
         return 1
@@ -119,16 +131,63 @@ def main() -> int:
             failures.append(f"uniform viewer capture ({lo}..{hi})")
 
     # -- copy: full selection must return the exact logical content ----------
-    try:
-        widget.tag_add("sel", "1.0", "end-1c")
-        win._viewer_copy(widget, CONTENT.split("\n"))
-        clip = root.clipboard_get()
-        if clip == CONTENT:
-            print("::notice::VIEWER_COPY_OK full-selection copy returned exact logical text", flush=True)
-        else:
-            failures.append(f"copy mismatch: {clip!r} != CONTENT")
-    except Exception as exc:  # noqa: BLE001 - probe reports, not crashes
-        failures.append(f"copy raised {type(exc).__name__}: {exc}")
+    if richedit is not None:
+        from clipboard_manager import win_richedit as wre
+
+        def grab_clip() -> str:
+            richedit.copy()
+            for _ in range(10):
+                root.update()
+                time.sleep(0.02)
+            return root.clipboard_get().replace("\r\n", "\n")
+
+        try:
+            richedit.set_sel(0, wre.u16len(CONTENT))
+            if grab_clip() == CONTENT:
+                print("::notice::VIEWER_COPY_OK native full-selection copy returned exact logical text", flush=True)
+            else:
+                failures.append("richedit full copy mismatch")
+            mid = CONTENT.index("مخصص")
+            richedit.set_sel(wre.u16len(CONTENT[:mid]), wre.u16len(CONTENT[: mid + 4]))
+            if grab_clip() == "مخصص":
+                print("::notice::RICHEDIT_PARTIAL_OK mid-word slice copied exactly", flush=True)
+            else:
+                failures.append("richedit mid-word copy mismatch")
+            dig = CONTENT.index("12.5")
+            richedit.set_sel(wre.u16len(CONTENT[:dig]), wre.u16len(CONTENT[: dig + 4]))
+            if grab_clip() == "12.5":
+                print("::notice::RICHEDIT_DIGITS_OK digit-run slice copied exactly", flush=True)
+            else:
+                failures.append("richedit digit-run copy mismatch")
+            # cross-paragraph selection keeps the logical newline exactly once
+            line1 = CONTENT.split("\n")[0]
+            k = len(line1) + 3
+            richedit.set_sel(0, wre.u16len(CONTENT[:k]))
+            got = richedit.get_sel_text()
+            if got == CONTENT[:k] and got.count("\n") == 1:
+                print("::notice::RICHEDIT_MULTILINE_OK cross-paragraph selection keeps logical newline", flush=True)
+            else:
+                failures.append(f"richedit cross-paragraph mismatch: {got!r}")
+            # Esc reaches the close path while the HWND has focus
+            richedit._wndproc(richedit.hwnd, wre.WM_KEYDOWN, wre.VK_ESCAPE, 0)
+            root.update()
+            if not [w for w in root.winfo_children() if w.winfo_class() == "Toplevel"]:
+                print("::notice::RICHEDIT_ESC_OK Escape closed the viewer", flush=True)
+            else:
+                failures.append("Escape did not close the Rich Edit viewer")
+        except Exception as exc:  # noqa: BLE001 - probe reports, not crashes
+            failures.append(f"richedit copy raised {type(exc).__name__}: {exc}")
+    else:
+        try:
+            widget.tag_add("sel", "1.0", "end-1c")
+            win._viewer_copy(widget, CONTENT.split("\n"))
+            clip = root.clipboard_get()
+            if clip == CONTENT:
+                print("::notice::VIEWER_COPY_OK full-selection copy returned exact logical text", flush=True)
+            else:
+                failures.append(f"copy mismatch: {clip!r} != CONTENT")
+        except Exception as exc:  # noqa: BLE001 - probe reports, not crashes
+            failures.append(f"copy raised {type(exc).__name__}: {exc}")
 
     with open(os.path.join(OUT, "viewer_metrics.json"), "w", encoding="utf-8") as fh:
         json.dump({"platform": sys.platform, "failures": failures}, fh, ensure_ascii=False)
