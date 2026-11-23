@@ -272,13 +272,21 @@ class ClipboardWatcher:
     def _apply_item_limit(self) -> None:
         if self.max_items <= 0:
             return
-        removed = self.store.enforce_max_items(self.max_items)
-        for item in removed:
-            if item.image_path:
-                try:
-                    Path(item.image_path).unlink(missing_ok=True)
-                except OSError:
-                    logger.warning("Could not remove evicted clipboard image: %s", item.image_path)
+        # Keep the database eviction and corresponding file deletions in
+        # the same cross-process critical section as image capture. Otherwise
+        # another process can persist a new reference to a path between the
+        # row eviction and unlink, leaving a live history item without its PNG.
+        with image_files_lock(self.images_dir):
+            removed = self.store.enforce_max_items(self.max_items)
+            for item in removed:
+                if item.image_path:
+                    try:
+                        Path(item.image_path).unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning(
+                            "Could not remove evicted clipboard image: %s",
+                            item.image_path,
+                        )
 
     def poll_once(self) -> ClipboardItem | None:
         """Check the clipboard once. Returns the new item, or None."""
