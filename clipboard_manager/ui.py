@@ -337,7 +337,7 @@ class HistoryWindow:
         # where the original text had none.
         self._viewer_row_seps: dict[int, str] = {}
         for li, line in enumerate(viewer_lines):
-            rows = wrap_logical_line(line, measure, max_px)
+            rows = wrap_logical_line(line, measure, max_px, transform)
             for ri, row in enumerate(rows):
                 display, d2l = transform(row)
                 if d2l != list(range(len(row))):
