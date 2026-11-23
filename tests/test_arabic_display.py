@@ -146,5 +146,14 @@ def test_view_full_shows_complete_content(window):
     widget = find_text(tops[0])
     assert widget is not None, "viewer has no Text widget"
     content = widget.get("1.0", "end-1c")
-    assert content == shp(long_text)  # single line: per-line shaping == whole shaping
+    # Wrap-first: long content is broken into logical rows, each shaped on its
+    # own, logical beginning on the FIRST visual row (not the last).
+    rows = content.split("\n")
+    assert len(rows) > 1, "long content should wrap into logical rows"
+    row1_words = rows[0].split()
+    assert len(row1_words) % 2 == 0
+    prefix = "سطر طويل " * (len(row1_words) // 2)
+    assert rows[0] == shp(prefix)
+    # every logical word appears exactly once across the rows
+    assert sum(len(r.split()) for r in rows) == len(long_text.split())
     tops[0].destroy()
