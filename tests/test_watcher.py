@@ -344,3 +344,39 @@ def test_stop_waits_for_queued_ocr_before_database_can_close(store, images_dir):
     ocr.release.set()
     assert watcher.stop(timeout=2) is True
     assert store.get(item.id).ocr_text == "finished OCR"
+
+
+
+def test_failed_persistence_does_not_mark_clip_as_seen(store, images_dir, monkeypatch):
+    provider = FakeProvider()
+    watcher = make_watcher(store, images_dir, provider)
+
+    original_add_text = store.add_text
+
+    def fail_once(text):
+        raise RuntimeError("temporary database failure")
+
+    provider.text = "retry this clip"
+    monkeypatch.setattr(store, "add_text", fail_once)
+    import pytest
+    with pytest.raises(RuntimeError, match="temporary database failure"):
+        watcher.poll_once()
+    assert watcher._last_hash is None
+
+    monkeypatch.setattr(store, "add_text", original_add_text)
+    item = watcher.poll_once()
+    assert item is not None and item.text == "retry this clip"
+    assert store.count() == 1
+
+    # The same guarantee applies to image persistence.
+    provider.image = PNG_A
+    original_add_image = store.add_image
+    monkeypatch.setattr(store, "add_image", fail_once)
+    with pytest.raises(RuntimeError, match="temporary database failure"):
+        watcher.poll_once()
+    assert watcher._last_hash == item.content_hash
+
+    monkeypatch.setattr(store, "add_image", original_add_image)
+    image_item = watcher.poll_once()
+    assert image_item is not None and image_item.kind == "image"
+    assert store.count() == 2

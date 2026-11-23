@@ -250,8 +250,10 @@ class ClipboardWatcher:
         with self._hash_lock:
             if digest == self._last_hash:
                 return None
+            # Commit the deduplication hash only after persistence succeeds.
+            # Keep the lock across the write so concurrent pollers cannot race.
+            item, is_new = self.store.add_text(text)
             self._last_hash = digest
-        item, is_new = self.store.add_text(text)
         if not is_new:
             return None
         self._apply_item_limit()
@@ -277,22 +279,23 @@ class ClipboardWatcher:
         with self._hash_lock:
             if digest == self._last_hash:
                 return None
+
+            self.images_dir.mkdir(parents=True, exist_ok=True)
+            image_path = self.images_dir / f"{digest[:16]}.png"
+            if not image_path.exists():
+                temporary_path = image_path.with_suffix(".png.tmp")
+                try:
+                    temporary_path.write_bytes(png)
+                    temporary_path.replace(image_path)
+                finally:
+                    temporary_path.unlink(missing_ok=True)
+
+            # Do not mark this digest as seen until SQLite confirms the write.
+            item, is_new = self.store.add_image(str(image_path), digest)
             self._last_hash = digest
 
-        self.images_dir.mkdir(parents=True, exist_ok=True)
-        image_path = self.images_dir / f"{digest[:16]}.png"
-        if not image_path.exists():
-            temporary_path = image_path.with_suffix(".png.tmp")
-            try:
-                temporary_path.write_bytes(png)
-                temporary_path.replace(image_path)
-            finally:
-                temporary_path.unlink(missing_ok=True)
-
-        item, is_new = self.store.add_image(str(image_path), digest)
         if not is_new:
             return None
-
         if self.ocr_engine is not None:
             self._ensure_ocr_worker()
             self._ocr_queue.put((item.id, str(image_path), digest))
