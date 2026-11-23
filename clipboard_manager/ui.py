@@ -19,7 +19,7 @@ from tkinter import messagebox, simpledialog, ttk
 
 from .models import IMAGE, TEXT
 from .storage import ClipboardStore
-from .text_shaping import base_is_rtl, shape_for_display
+from .text_shaping import base_is_rtl, logical_slice, shape_for_display, shape_with_map
 from .watcher import ClipboardProvider
 
 logger = logging.getLogger(__name__)
@@ -127,36 +127,117 @@ class HistoryWindow:
     def _bind_shaped_input(self, entry: ttk.Entry) -> None:
         entry.bind("<Key>", self._on_search_key)
         entry.bind("<<Paste>>", self._on_search_paste)
+        entry.bind("<<Copy>>", self._on_search_copy)
+        entry.bind("<<Cut>>", self._on_search_cut)
+        self._search_d2l: list[int] = []
+
+    # All editing happens in LOGICAL order on search_var; the entry shows the
+    # shaped display copy and self._search_d2l maps display index -> logical
+    # index, so caret, selection, Delete/BackSpace and copy behave the way the
+    # user sees them while the stored text keeps its original Unicode.
+
+    def _search_caret(self) -> int:
+        return self._search_entry.index(tk.INSERT)
+
+    def _search_sel(self) -> tuple[int, int] | None:
+        entry = self._search_entry
+        if entry.selection_present():
+            a, b = entry.index(tk.SEL_FIRST), entry.index(tk.SEL_LAST)
+            if b > a:
+                return a, b
+        return None
+
+    def _delete_visual_range(self, text: str, a: int, b: int) -> None:
+        d2l = self._search_d2l
+        drop = set(d2l[a:b])
+        self._set_search_text("".join(ch for i, ch in enumerate(text) if i not in drop), caret=a)
+
+    def _insert_at_visual_caret(self, text: str, caret: int, piece: str) -> None:
+        d2l = self._search_d2l
+        if not d2l:
+            pos = 0
+        elif caret > 0:
+            pos = d2l[caret - 1] + 1
+        else:
+            pos = d2l[0] if d2l[0] == 0 else len(text)
+        new = text[:pos] + piece + text[pos:]
+        _, d2l2 = shape_with_map(new)
+        try:
+            vpos = d2l2.index(pos) + len(piece)
+        except ValueError:
+            vpos = len(d2l2)
+        self._set_search_text(new, caret=vpos)
 
     def _on_search_key(self, event: tk.Event) -> str | None:
-        if event.state & 0x4:  # Ctrl combos (copy/all/...) keep default behavior
+        if event.state & 0x4:  # Ctrl combos (copy/paste/...) keep default behavior
             return None
         text = self.search_var.get()
+        caret = self._search_caret()
+        sel = self._search_sel()
         if event.keysym == "BackSpace":
-            text = text[:-1]
-        elif event.keysym == "Delete":
-            text = ""
-        elif event.char and event.char.isprintable():
-            text += event.char
-        else:
-            return None  # arrows, Tab, F-keys: default behavior
-        self._set_search_text(text)
-        return "break"
+            if sel:
+                self._delete_visual_range(text, *sel)
+            elif caret > 0:
+                logi = self._search_d2l[caret - 1]
+                self._set_search_text(text[:logi] + text[logi + 1 :], caret=caret - 1)
+            return "break"
+        if event.keysym == "Delete":
+            if sel:
+                self._delete_visual_range(text, *sel)
+            elif caret < len(self._search_d2l):
+                logi = self._search_d2l[caret]
+                self._set_search_text(text[:logi] + text[logi + 1 :], caret=caret)
+            return "break"
+        if event.char and event.char.isprintable():
+            if sel:
+                self._delete_visual_range(text, *sel)
+                text = self.search_var.get()
+                caret = self._search_caret()
+            self._insert_at_visual_caret(text, caret, event.char)
+            return "break"
+        return None  # arrows, Tab, F-keys: default behavior
 
     def _on_search_paste(self, _event: tk.Event) -> str:
-        try:
-            text = self.search_var.get() + self.root.clipboard_get()
-        except tk.TclError:
+        text = self.search_var.get()
+        sel = self._search_sel()
+        if sel:
+            self._delete_visual_range(text, *sel)
             text = self.search_var.get()
-        self._set_search_text(text)
+        try:
+            piece = self.root.clipboard_get()
+        except tk.TclError:
+            piece = ""
+        if piece:
+            self._insert_at_visual_caret(text, self._search_caret(), piece)
         return "break"
 
-    def _set_search_text(self, text: str) -> None:
+    def _copy_search_selection(self, cut: bool = False) -> str:
+        text = self.search_var.get()
+        sel = self._search_sel()
+        if sel:
+            piece = logical_slice(text, self._search_d2l, *sel)
+        else:
+            piece = text
+        self.root.clipboard_clear()
+        self.root.clipboard_append(piece)
+        if cut and sel:
+            self._delete_visual_range(text, *sel)
+        return "break"
+
+    def _on_search_copy(self, _event: tk.Event) -> str:
+        return self._copy_search_selection(cut=False)
+
+    def _on_search_cut(self, _event: tk.Event) -> str:
+        return self._copy_search_selection(cut=True)
+
+    def _set_search_text(self, text: str, caret: int | None = None) -> None:
         self.search_var.set(text)
-        display = shape_for_display(text)
+        display, d2l = shape_with_map(text)
         self._search_display_var.set(display)
-        if display:
-            self._search_entry.icursor(0 if base_is_rtl(text) else tk.END)
+        self._search_d2l = d2l
+        if caret is None:
+            caret = 0 if base_is_rtl(text) else len(display)
+        self._search_entry.icursor(min(caret, len(display)))
         self.refresh()
 
     # -- full-content viewer --------------------------------------------------
@@ -173,12 +254,16 @@ class HistoryWindow:
             body = f"[image: {item.image_path}]"
         win = tk.Toplevel(self.root)
         win.title("Full content")
-        # Place near the main window, clamped to the screen so the viewer
-        # never opens off the visible area.
+        # Place near the main window, clamped to the screen with a margin so
+        # the decorated frame stays clear of screen edges / taskbar areas.
         self.root.update_idletasks()
-        x = max(0, min(self.root.winfo_x() + 40, win.winfo_screenwidth() - 640))
-        y = max(0, min(self.root.winfo_y() + 40, win.winfo_screenheight() - 400))
-        win.geometry(f"640x400+{x}+{y}")
+        margin = 24
+        w, h = 640, 400
+        max_x = max(margin, win.winfo_screenwidth() - w - margin)
+        max_y = max(margin, win.winfo_screenheight() - h - margin)
+        x = max(margin, min(self.root.winfo_x() + 40, max_x))
+        y = max(margin, min(self.root.winfo_y() + 40, max_y))
+        win.geometry(f"{w}x{h}+{x}+{y}")
         meta = f"{item.kind} - copied {item.created_at}"
         if item.tags:
             meta += " - tags: " + item.tags.replace(",", ", ")
@@ -194,10 +279,47 @@ class HistoryWindow:
         text.configure(yscrollcommand=scroll.set)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        text.insert("1.0", shape_for_display(body))
+        # Shape per line so each line keeps its own display->logical index
+        # map; copy then reconstructs the logical text of the selection.
+        viewer_lines = body.split("\n")
+        self._viewer_line_maps: dict[int, tuple[str, list[int]]] = {}
+        for i, line in enumerate(viewer_lines):
+            display, d2l = shape_with_map(line)
+            if d2l != list(range(len(line))):
+                self._viewer_line_maps[i + 1] = (line, d2l)
+            text.insert(tk.END, display + ("\n" if i < len(viewer_lines) - 1 else ""))
+        text.bind("<<Copy>>", lambda e: self._viewer_copy(text, viewer_lines))
         text.bind("<Key>", lambda e: None if (e.state & 0x4 or e.keysym == "Escape") else "break")
         win.bind("<Escape>", lambda _e: win.destroy())
         text.focus_set()
+
+    def _viewer_copy(self, widget: tk.Text, lines: list[str]) -> str:
+        """Copy the Text selection as its original logical text.
+
+        Each shaped line's index map selects exactly the highlighted logical
+        characters, ordered logically; unshaped lines copy as shown.
+        """
+        try:
+            first = widget.index("sel.first")
+            last = widget.index("sel.last")
+        except tk.TclError:
+            return "break"
+        li1, c1 = (int(v) for v in first.split("."))
+        li2, c2 = (int(v) for v in last.split("."))
+        pieces: list[str] = []
+        for ln in range(li1, li2 + 1):
+            disp_line = widget.get(f"{ln}.0", f"{ln}.end")
+            a = c1 if ln == li1 else 0
+            b = c2 if ln == li2 else len(disp_line)
+            entry = self._viewer_line_maps.get(ln)
+            if entry is not None:
+                original, d2l = entry
+                pieces.append(logical_slice(original, d2l, a, min(b, len(d2l))))
+            else:
+                pieces.append(disp_line[a:b])
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(pieces))
+        return "break"
 
     # -- data ---------------------------------------------------------------
 
