@@ -1,3 +1,4 @@
+import sys
 """Bidi search-entry editing and logical-copy tests.
 
 Two layers:
@@ -298,3 +299,34 @@ def test_shaping_inactive_on_windows():
     from clipboard_manager import text_shaping as _ts
 
     assert _ts.shaping_active() is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="X11 display behavior")
+def test_viewer_copy_no_newlines_at_wrap_breaks(window):
+    """Copy across wrap rows must not inject newlines; logical \n must stay."""
+    long_line = "سطر طويل " * 40  # wraps into several display rows
+    body = long_line + "\nسطر ثان"
+    window.store.add_text(body)
+    window.refresh()
+    first = window.tree.get_children()[0]
+    window.tree.selection_set(first)
+    window.view_full()
+    window.root.update()
+    tops = [w for w in window.root.winfo_children() if w.winfo_class() == "Toplevel"]
+
+    def find_text(w):
+        if w.winfo_class() == "Text":
+            return w
+        for c in w.winfo_children():
+            found = find_text(c)
+            if found is not None:
+                return found
+        return None
+
+    widget = find_text(tops[0])
+    rows = int(widget.index("end-1c").split(".")[0])
+    assert rows > 2, "content should wrap into several display rows"
+    widget.tag_add("sel", "1.0", f"{rows}.end")
+    window._viewer_copy(widget, body.split("\n"))
+    assert window.root.clipboard_get() == body  # exact logical text, no injected breaks
+    tops[0].destroy()
