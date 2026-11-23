@@ -50,6 +50,8 @@ CFM_FACE = 0x20000000
 
 PFM_RTLPARA = 0x00010000
 PFE_RTLPARA = 0x0001
+PFM_ALIGNMENT = 0x0008
+PFA_RIGHT = 1
 
 GWLP_WNDPROC = -4
 
@@ -123,8 +125,8 @@ def u16slice(text: str, a: int, b: int) -> str:
 
 
 def _normalize(text: str) -> str:
-    """Rich Edit reports line breaks as CRLF; our logical text uses LF."""
-    return text.replace("\r\n", "\n")
+    """Rich Edit reports line breaks as CRLF or lone CR; logical text uses LF."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 if _IS_WIN:
@@ -224,8 +226,9 @@ class RichEditViewer:
             _user32.SendMessageW(self.hwnd, EM_SETSEL, start, pos)
             pf = PARAFORMAT2()
             pf.cbSize = ctypes.sizeof(PARAFORMAT2)
-            pf.dwMask = PFM_RTLPARA
+            pf.dwMask = PFM_RTLPARA | PFM_ALIGNMENT
             pf.wEffects = PFE_RTLPARA
+            pf.wAlignment = PFA_RIGHT
             _user32.SendMessageW(self.hwnd, EM_SETPARAFORMAT, SCF_SELECTION, ctypes.byref(pf))
 
     def get_text(self) -> str:
