@@ -12,6 +12,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from .file_lock import image_files_lock
 from .models import ClipboardItem
 from .storage import ClipboardStore
 
@@ -324,42 +325,45 @@ class ClipboardWatcher:
 
     def _capture_image(self, png: bytes) -> ClipboardItem | None:
         digest = ClipboardItem.hash_bytes(png)
-        with self._hash_lock:
-            if digest == self._last_hash:
-                return None
+        # The process-wide lock coordinates this write + SQLite insert with
+        # orphan sweeps in every process using the same data directory.
+        with image_files_lock(self.images_dir):
+            with self._hash_lock:
+                if digest == self._last_hash:
+                    return None
 
-            self.images_dir.mkdir(parents=True, exist_ok=True)
-            image_path = self.images_dir / f"{digest[:16]}.png"
-            created_image_file = False
-            if not image_path.exists():
-                temporary_path = image_path.with_suffix(".png.tmp")
-                try:
-                    temporary_path.write_bytes(png)
-                    temporary_path.replace(image_path)
-                    created_image_file = True
-                finally:
-                    temporary_path.unlink(missing_ok=True)
-
-            # Do not mark this digest as seen until SQLite confirms the write.
-            try:
-                item, is_new = self.store.add_image(str(image_path), digest)
-            except Exception:
-                if created_image_file:
+                self.images_dir.mkdir(parents=True, exist_ok=True)
+                image_path = self.images_dir / f"{digest[:16]}.png"
+                created_image_file = False
+                if not image_path.exists():
+                    temporary_path = image_path.with_suffix(".png.tmp")
                     try:
-                        # Another record may already reference the same digest.
-                        existing = self.store.get_by_hash(digest)
-                        if existing is None or existing.image_path != str(image_path):
-                            image_path.unlink(missing_ok=True)
-                    except Exception:
-                        # If the database is unavailable, leave cleanup to the
-                        # startup orphan-file maintenance rather than risk data loss.
-                        logger.warning(
-                            "Could not verify failed image persistence cleanup: %s",
-                            image_path,
-                            exc_info=True,
-                        )
-                raise
-            self._last_hash = digest
+                        temporary_path.write_bytes(png)
+                        temporary_path.replace(image_path)
+                        created_image_file = True
+                    finally:
+                        temporary_path.unlink(missing_ok=True)
+
+                # Do not mark this digest as seen until SQLite confirms the write.
+                try:
+                    item, is_new = self.store.add_image(str(image_path), digest)
+                except Exception:
+                    if created_image_file:
+                        try:
+                            # Another record may already reference the same digest.
+                            existing = self.store.get_by_hash(digest)
+                            if existing is None or existing.image_path != str(image_path):
+                                image_path.unlink(missing_ok=True)
+                        except Exception:
+                            # If the database is unavailable, leave cleanup to the
+                            # startup orphan-file maintenance rather than risk data loss.
+                            logger.warning(
+                                "Could not verify failed image persistence cleanup: %s",
+                                image_path,
+                                exc_info=True,
+                            )
+                    raise
+                self._last_hash = digest
 
         if not is_new:
             return None
