@@ -131,12 +131,18 @@ def _open_ui_subprocess() -> None:
 def cmd_ui(args) -> int:
     config = Config.load()
     Path(config.images_dir).mkdir(parents=True, exist_ok=True)
+    from .ui_launch import claim_ui_instance, release_ui_instance
+
+    if not claim_ui_instance(config.data_dir):
+        print("[smart-clipboard] history window is already open")
+        return 0
     store = ClipboardStore(config.db_path)
     try:
         from .ui import open_history_window
 
         open_history_window(store, PyperclipPILProvider(), config)
     finally:
+        release_ui_instance(config.data_dir)
         store.close()
     return 0
 

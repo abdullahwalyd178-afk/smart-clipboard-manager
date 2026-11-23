@@ -119,3 +119,19 @@ def test_set_text_passes_through():
     provider = SensitiveFilterProvider(inner)
     provider.set_text("hello")
     assert inner.set_calls == ["hello"]
+
+
+def test_skip_reason_reset_after_allowed_image_capture(monkeypatch):
+    """Regression: a successful image capture must clear the last skip reason."""
+    import clipboard_manager.sensitive as S
+
+    inner = FakeInner(text=None, image=b"png-bytes")
+    provider = SensitiveFilterProvider(inner=inner, excluded_window_keywords=["bank"])
+
+    monkeypatch.setattr(S, "active_window_info", lambda: ("chrome.exe", "My Bank - Login"))
+    assert provider.get_image_png_bytes() is None
+    assert provider.last_skip_reason is not None
+
+    monkeypatch.setattr(S, "active_window_info", lambda: ("chrome.exe", "ordinary page"))
+    assert provider.get_image_png_bytes() == b"png-bytes"
+    assert provider.last_skip_reason is None

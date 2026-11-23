@@ -194,6 +194,9 @@ class SensitiveFilterProvider(ClipboardProvider):
             self.last_skip_reason = reason
             logger.info("capture skipped (%s)", reason)
             return None
+        # Mirror get_text: once a capture is allowed through, the previous
+        # skip reason no longer describes the last check.
+        self.last_skip_reason = None
         return self.inner.get_image_png_bytes()
 
     def set_text(self, text: str) -> None:
