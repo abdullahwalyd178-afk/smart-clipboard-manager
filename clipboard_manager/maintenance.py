@@ -58,7 +58,10 @@ def sweep_orphan_images(
         if key in referenced:
             continue
         try:
-            if path.stat().st_mtime > cutoff:
+            # min_age_seconds=0 disables the guard: on Windows time.time() is
+            # coarser (~15ms tick) than the NTFS mtime, so a just-written file
+            # can read as "newer" than the cutoff and be skipped forever.
+            if min_age_seconds > 0 and path.stat().st_mtime > cutoff:
                 continue  # maybe an in-flight capture; check again next sweep
         except OSError:
             continue
