@@ -111,6 +111,7 @@ class ClipboardWatcher:
         self._ocr_thread: threading.Thread | None = None
         self._ocr_queue: queue.Queue = queue.Queue()
         self._ocr_shutdown_requested = False
+        self._ocr_restart_requested = False
         self._lifecycle_lock = threading.Lock()
 
     @property
@@ -131,7 +132,8 @@ class ClipboardWatcher:
                 return
             self._ocr_shutdown_requested = False
             self._ocr_thread = threading.Thread(
-                target=self._ocr_loop, name="clipboard-ocr", daemon=True
+                target=self._ocr_loop, args=(self._ocr_queue,),
+                name="clipboard-ocr", daemon=True
             )
             self._ocr_thread.start()
 
@@ -140,7 +142,15 @@ class ClipboardWatcher:
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop.clear()
-            self._ocr_shutdown_requested = False
+            if (
+                self._ocr_thread is not None
+                and self._ocr_thread.is_alive()
+                and self._ocr_shutdown_requested
+            ):
+                # A previous stop timed out while OCR was busy. The worker
+                # will consume its sentinel after the active task; ask it to
+                # hand the same queue to a replacement worker before exiting.
+                self._ocr_restart_requested = True
             self._thread = threading.Thread(
                 target=self._run, name="clipboard-watcher", daemon=True
             )
@@ -186,18 +196,30 @@ class ClipboardWatcher:
                 logger.exception("Unexpected clipboard polling failure")
             self._stop.wait(self.poll_interval)
 
-    def _ocr_loop(self) -> None:
+    def _ocr_loop(self, task_queue: queue.Queue) -> None:
         while True:
-            task = self._ocr_queue.get()
+            task = task_queue.get()
             try:
                 if task is _STOP_OCR:
+                    with self._lifecycle_lock:
+                        if self._ocr_restart_requested and task_queue is self._ocr_queue:
+                            self._ocr_restart_requested = False
+                            self._ocr_shutdown_requested = False
+                            replacement = threading.Thread(
+                                target=self._ocr_loop,
+                                args=(task_queue,),
+                                name="clipboard-ocr",
+                                daemon=True,
+                            )
+                            self._ocr_thread = replacement
+                            replacement.start()
                     return
                 item_id, image_path, digest = task
                 self._process_ocr(item_id, image_path, digest)
             except Exception:
                 logger.exception("Unexpected OCR worker failure")
             finally:
-                self._ocr_queue.task_done()
+                task_queue.task_done()
 
     def _process_ocr(self, item_id: int, image_path: str, digest: str) -> None:
         # An item may have expired or been evicted while waiting in the queue.

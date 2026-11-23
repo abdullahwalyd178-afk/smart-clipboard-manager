@@ -380,3 +380,45 @@ def test_failed_persistence_does_not_mark_clip_as_seen(store, images_dir, monkey
     image_item = watcher.poll_once()
     assert image_item is not None and image_item.kind == "image"
     assert store.count() == 2
+
+
+def test_restart_after_timed_out_ocr_stop_processes_tasks_queued_after_sentinel(store, images_dir):
+    class FirstCallBlockingOCR(FakeOCR):
+        def __init__(self):
+            super().__init__("processed")
+            self.entered = threading.Event()
+            self.release = threading.Event()
+            self.call_count = 0
+
+        def extract_text(self, path):
+            self.call_count += 1
+            if self.call_count == 1:
+                self.entered.set()
+                self.release.wait(timeout=3)
+            return f"processed {self.call_count}"
+
+    provider = FakeProvider()
+    ocr = FirstCallBlockingOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
+
+    provider.image = PNG_A
+    first = watcher.poll_once()
+    assert first is not None
+    assert ocr.entered.wait(timeout=1)
+
+    # stop queues its sentinel behind the currently-running OCR task.
+    assert watcher.stop(timeout=0.01) is False
+
+    # Restart while the old worker is still busy, then queue a new image
+    # behind the sentinel. The old worker must hand off to a fresh worker.
+    watcher.start()
+    provider.image = PNG_B
+    second = watcher.poll_once()
+    assert second is not None and second.id != first.id
+
+    ocr.release.set()
+    assert wait_until(lambda: ocr.call_count == 2, timeout=2)
+    assert wait_until(
+        lambda: store.get(second.id).ocr_text == "processed 2", timeout=2
+    )
+    assert watcher.stop(timeout=2) is True
