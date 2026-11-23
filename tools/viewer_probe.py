@@ -242,6 +242,11 @@ def main() -> int:
             sa, sb = richedit.get_sel()
             got = grab_clip()
             want = wre.u16slice(CONTENT, sa, sb) if sb > sa else ""
+            print(
+                f"::notice::DRAG_DEBUG sel=({sa},{sb}) bnd={bnd} "
+                f"clip_len={len(got)} match={got == want}",
+                flush=True,
+            )
             has_ar = any("\u0600" <= c <= "\u06ff" for c in got)
             has_lat = any("a" <= c.lower() <= "z" for c in got)
             if sb > sa and got == want and sa < bnd < sb and has_ar and has_lat:
@@ -256,12 +261,29 @@ def main() -> int:
                 )
             # Paragraph format readback: the RTL/alignment bits must actually
             # be stored on an RTL paragraph.
+            EM_GETPARAFORMAT = 0x043D
+            EM_SETPARAFORMAT = 0x0447
             pf = wre.PARAFORMAT2()
             pf.cbSize = ctypes.sizeof(wre.PARAFORMAT2)
+            pf.dwMask = wre.PFM_RTLPARA | wre.PFM_ALIGNMENT
+            pf.wEffects = wre.PFE_RTLPARA
+            pf.wAlignment = wre.PFA_RIGHT
             richedit.set_sel(0, 1)
-            wre._user32.SendMessageW(
-                richedit.hwnd, 0x0435, 0, ctypes.byref(pf)  # EM_GETPARAFORMAT
+            r_set = wre._user32.SendMessageW(
+                richedit.hwnd, EM_SETPARAFORMAT, 0, ctypes.byref(pf)
             )
+            pf2 = wre.PARAFORMAT2()
+            pf2.cbSize = ctypes.sizeof(wre.PARAFORMAT2)
+            r_get = wre._user32.SendMessageW(
+                richedit.hwnd, EM_GETPARAFORMAT, 0, ctypes.byref(pf2)
+            )
+            print(
+                f"::notice::PARAFORMAT_READBACK set_ret={r_set} "
+                f"get_ret=0x{r_get & 0xFFFFFFFF:x} effects=0x{pf2.wEffects:x} "
+                f"align={pf2.wAlignment} cbsize={ctypes.sizeof(wre.PARAFORMAT2)}",
+                flush=True,
+            )
+            pf = pf2
             if pf.wEffects & wre.PFE_RTLPARA and pf.wAlignment == wre.PFA_RIGHT:
                 print(
                     "::notice::RICHEDIT_PARAFORMAT_OK RTL paragraph carries "
