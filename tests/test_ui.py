@@ -6,6 +6,7 @@ without one they skip (run locally under Xvfb or on Windows).
 """
 
 import os
+import sys
 
 import pytest
 
@@ -101,6 +102,7 @@ class TestDisplayText:
     def test_plain_text_passthrough(self):
         assert _display_text("hello world") == "hello world"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="win32 takes the word-reorder path")
     def test_arabic_is_reshaped_for_tk(self):
         pytest.importorskip("arabic_reshaper")
         shaped = _display_text("نص عربي")
