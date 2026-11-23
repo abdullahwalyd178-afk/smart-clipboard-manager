@@ -19,7 +19,7 @@ from tkinter import messagebox, simpledialog, ttk
 
 from .models import IMAGE, TEXT
 from .storage import ClipboardStore
-from .text_shaping import base_is_rtl, logical_slice, shape_for_display, shape_with_map
+from .text_shaping import base_is_rtl, logical_slice, shape_for_display, shape_with_map, shaping_active
 from .watcher import ClipboardProvider
 
 logger = logging.getLogger(__name__)
@@ -71,10 +71,14 @@ class HistoryWindow:
         # the entry widget only shows the shaped display copy.
         self.search_var = tk.StringVar()
         self._search_display_var = tk.StringVar()
-        entry = ttk.Entry(top, textvariable=self._search_display_var, width=32)
+        # On platforms where the OS text stack shapes (Windows/macOS) the
+        # entry edits the LOGICAL var directly and keeps native editing
+        # behaviour; the shaped display copy exists only on Linux/X11.
+        entry = ttk.Entry(top, textvariable=self._search_display_var if shaping_active() else self.search_var, width=32)
         entry.pack(side=tk.LEFT, padx=(4, 10))
         self._search_entry = entry
-        self._bind_shaped_input(entry)
+        if shaping_active():
+            self._bind_shaped_input(entry)
         entry.bind("<KeyRelease>", lambda _e: self.refresh())
         self.filter_var = tk.StringVar(value=FILTERS[0])
         combo = ttk.Combobox(
