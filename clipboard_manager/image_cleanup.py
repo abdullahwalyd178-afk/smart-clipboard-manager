@@ -11,9 +11,9 @@ from .storage import ClipboardStore
 logger = logging.getLogger(__name__)
 
 
-def _unlink_images(items) -> None:
+def _unlink_images(store: ClipboardStore, items) -> None:
     for item in items:
-        if item.image_path:
+        if item.image_path and not store.image_path_referenced(item.image_path):
             try:
                 Path(item.image_path).unlink(missing_ok=True)
             except OSError:
@@ -34,7 +34,7 @@ def purge_and_enforce(
     with image_files_lock(images_dir):
         removed = store.purge_expired(retention_days)
         removed.extend(store.enforce_max_items(max_items))
-        _unlink_images(removed)
+        _unlink_images(store, removed)
     return removed
 
 
@@ -45,7 +45,7 @@ def delete_item(
     with image_files_lock(images_dir):
         removed = store.delete(item_id)
         if removed is not None:
-            _unlink_images([removed])
+            _unlink_images(store, [removed])
     return removed
 
 
