@@ -10,3 +10,12 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt pytest
       - run: python -m pytest -q -rs
+      # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
+      # pixels: OS-stack shaping/reorder can only be judged visually.
+      - run: python tools/render_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-render
+          path: ci-render/out/
+          if-no-files-found: warn
