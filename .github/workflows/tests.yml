@@ -11,12 +11,35 @@ jobs:
       - run: pip install -r requirements.txt pytest
       # Probe-only deps: shape fixtures with the same pipeline the Linux viewer uses.
       - run: pip install arabic-reshaper "python-bidi==0.6.12"
-      - run: python -m pytest -q -rs
+      - shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q -rs 2>&1 | tee "$RUNNER_TEMP/pytest-out.txt"
+      - name: Surface pytest failures as annotations
+        if: failure()
+        shell: bash
+        run: |
+          grep -E "^(FAILED|ERROR)" "$RUNNER_TEMP/pytest-out.txt" | head -30 | while IFS= read -r l; do echo "::error::$l"; done
+          awk '/^=+ (FAILURES|ERRORS) =+/,0' "$RUNNER_TEMP/pytest-out.txt" | head -90 | while IFS= read -r l; do echo "::notice::TB $l"; done
       # Render real Tk widgets with Arabic/BiDi fixtures and upload the actual
       # pixels: OS-stack shaping/reorder can only be judged visually.
-      - run: python tools/render_probe.py
+      - shell: bash
+        run: |
+          set -o pipefail
+          python tools/render_probe.py 2>&1 | tee "$RUNNER_TEMP/render-probe-out.txt"
+      - name: Surface render_probe failure lines
+        if: failure()
+        shell: bash
+        run: grep -E "PROBE_|Error|Traceback" "$RUNNER_TEMP/render-probe-out.txt" | head -25 | while IFS= read -r l; do echo "::error::$l"; done
 
-      - run: python tools/viewer_probe.py
+      - shell: bash
+        run: |
+          set -o pipefail
+          python tools/viewer_probe.py 2>&1 | tee "$RUNNER_TEMP/viewer-probe-out.txt"
+      - name: Surface viewer_probe failure lines
+        if: failure()
+        shell: bash
+        run: grep -E "PROBE_|Error|Traceback" "$RUNNER_TEMP/viewer-probe-out.txt" | head -25 | while IFS= read -r l; do echo "::error::$l"; done
       - name: Surface render metrics as annotation
         if: always()
         shell: bash
