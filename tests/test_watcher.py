@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from clipboard_manager.watcher import ClipboardProvider, ClipboardWatcher
+from clipboard_manager.watcher import OCR_QUEUE_MAXSIZE, ClipboardProvider, ClipboardWatcher
 
 
 def make_png(color=(200, 30, 30)) -> bytes:
@@ -425,3 +425,42 @@ def test_restart_after_timed_out_ocr_stop_processes_tasks_queued_after_sentinel(
         lambda: store.get(second.id).ocr_text == "processed 2", timeout=2
     )
     assert watcher.stop(timeout=2) is True
+
+
+def test_ocr_queue_is_bounded_without_dropping_captured_images(store, images_dir):
+    class BlockingOCR(FakeOCR):
+        def __init__(self):
+            super().__init__("done")
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def extract_text(self, path):
+            self.entered.set()
+            self.release.wait(timeout=3)
+            return self.result
+
+    provider = FakeProvider()
+    ocr = BlockingOCR()
+    watcher = make_watcher(store, images_dir, provider, ocr=ocr)
+
+    provider.image = PNG_A
+    first = watcher.poll_once()
+    assert first is not None
+    assert ocr.entered.wait(timeout=1)
+
+    assert watcher._ocr_queue.maxsize == OCR_QUEUE_MAXSIZE
+    # Hold the worker on its first image and fill every pending OCR slot.
+    for index in range(OCR_QUEUE_MAXSIZE):
+        watcher._ocr_queue.put_nowait((10_000 + index, "unused.png", "unused"))
+
+    provider.image = PNG_B
+    second = watcher.poll_once()
+    assert second is not None and second.kind == "image"
+    assert store.get(second.id) is not None
+    assert store.count() == 2
+    assert watcher._ocr_queue.qsize() == OCR_QUEUE_MAXSIZE
+
+    # A full queue must not make shutdown block forever.
+    assert watcher.stop(timeout=0.01) is False
+    ocr.release.set()
+    assert watcher.stop(timeout=3) is True

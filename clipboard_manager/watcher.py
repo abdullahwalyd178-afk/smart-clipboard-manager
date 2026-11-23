@@ -16,6 +16,7 @@ from .models import ClipboardItem
 from .storage import ClipboardStore
 
 logger = logging.getLogger(__name__)
+OCR_QUEUE_MAXSIZE = 100
 _STOP_OCR = object()
 
 
@@ -109,7 +110,7 @@ class ClipboardWatcher:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._ocr_thread: threading.Thread | None = None
-        self._ocr_queue: queue.Queue = queue.Queue()
+        self._ocr_queue: queue.Queue = queue.Queue(maxsize=OCR_QUEUE_MAXSIZE)
         self._ocr_shutdown_requested = False
         self._ocr_restart_requested = False
         self._lifecycle_lock = threading.Lock()
@@ -175,7 +176,12 @@ class ClipboardWatcher:
             ocr_thread = self._ocr_thread
             if ocr_thread is not None and ocr_thread.is_alive() and not self._ocr_shutdown_requested:
                 self._ocr_shutdown_requested = True
-                self._ocr_queue.put(_STOP_OCR)
+                try:
+                    self._ocr_queue.put(_STOP_OCR, timeout=max(0.0, timeout))
+                except queue.Full:
+                    self._ocr_shutdown_requested = False
+                    logger.warning("OCR queue is full; shutdown sentinel could not be queued")
+                    return False
 
         if ocr_thread is not None:
             ocr_thread.join(timeout=max(0.0, timeout))
@@ -320,7 +326,12 @@ class ClipboardWatcher:
             return None
         if self.ocr_engine is not None:
             self._ensure_ocr_worker()
-            self._ocr_queue.put((item.id, str(image_path), digest))
+            try:
+                self._ocr_queue.put_nowait((item.id, str(image_path), digest))
+            except queue.Full:
+                # The clipboard item is already persisted; only its optional
+                # OCR is skipped so image capture can never be back-pressured.
+                logger.warning("OCR queue is full; skipping OCR for image %s", image_path)
 
         self._apply_item_limit()
         if self.on_new_item:
