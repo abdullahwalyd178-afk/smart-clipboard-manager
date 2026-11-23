@@ -14,12 +14,21 @@ Tkinter ships with python.org Windows builds, so there is no extra dependency.
 from __future__ import annotations
 
 import logging
+import sys
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
 from .models import IMAGE, TEXT
 from .storage import ClipboardStore
-from .text_shaping import base_is_rtl, logical_slice, shape_for_display, shape_with_map, shaping_active
+from .text_shaping import (
+    base_is_rtl,
+    logical_slice,
+    reorder_words_with_map,
+    shape_for_display,
+    shape_with_map,
+    shaping_active,
+    wrap_logical_line,
+)
 from .watcher import ClipboardProvider
 
 logger = logging.getLogger(__name__)
@@ -290,11 +299,33 @@ class HistoryWindow:
         # map; copy then reconstructs the logical text of the selection.
         viewer_lines = body.split("\n")
         self._viewer_line_maps: dict[int, tuple[str, list[int]]] = {}
-        for i, line in enumerate(viewer_lines):
-            display, d2l = shape_with_map(line)
-            if d2l != list(range(len(line))):
-                self._viewer_line_maps[i + 1] = (line, d2l)
-            text.insert(tk.END, display + ("\n" if i < len(viewer_lines) - 1 else ""))
+        # Windows Tk reverses letters inside each Arabic word but never the
+        # word order, so it gets word-reordered logical text; Linux/X11 gets
+        # full reshape+get_display. Either way rows are broken in LOGICAL
+        # order first (font-measured greedy wrap): transforming a whole
+        # paragraph before wrapping would put the logical beginning on the
+        # last visual row. Each display row keeps its own display->logical
+        # map so copy returns the original logical text.
+        win32 = sys.platform == "win32"
+        transform = reorder_words_with_map if win32 else shape_with_map
+        measure = None
+        try:
+            import tkinter.font as tkfont
+
+            fname = text.cget("font") or "TkFixedFont"
+            measure = tkfont.nametofont(fname).measure
+        except tk.TclError:
+            pass
+        win.update_idletasks()
+        max_px = text.winfo_reqwidth() - 12
+        displays: list[str] = []
+        for line in viewer_lines:
+            for row in wrap_logical_line(line, measure, max_px):
+                display, d2l = transform(row)
+                if d2l != list(range(len(row))):
+                    self._viewer_line_maps[len(displays) + 1] = (row, d2l)
+                displays.append(display)
+        text.insert(tk.END, "\n".join(displays))
         text.bind("<<Copy>>", lambda e: self._viewer_copy(text, viewer_lines))
         text.bind("<Key>", lambda e: None if (e.state & 0x4 or e.keysym == "Escape") else "break")
         win.bind("<Escape>", lambda _e: win.destroy())
